@@ -56,7 +56,92 @@ namespace qjs {
             }
         };
 
-/*
+        template <>
+        struct js_traits<bool>
+        {
+            static bool unwrap(JSContext * ctx, JSValue v) noexcept
+            {
+                return JS_ToBool(ctx, v);
+            }
+
+            static JSValue wrap(JSContext * ctx, bool i) noexcept
+            {
+                return JS_NewBool(ctx, i);
+            }
+        };
+
+        template <>
+        struct js_traits<double>
+        {
+            static double unwrap(JSContext * ctx, JSValue v)
+            {
+                double r;
+                if(JS_ToFloat64(ctx, &r, v))
+                    throw exception{};
+                return r;
+            }
+
+            static JSValue wrap(JSContext * ctx, double i) noexcept
+            {
+                return JS_NewFloat64(ctx, i);
+            }
+        };
+
+        class js_string : public std::string_view
+        {
+            using Base = std::string_view;
+            JSContext * ctx = nullptr;
+
+            friend struct js_traits<js_string>;
+            js_string(JSContext * ctx, const char * ptr, std::size_t len) : Base(ptr, len), ctx(ctx) {}
+        public:
+
+            template <typename... Args>
+            js_string(Args&&... args) : Base(std::forward<Args>(args)...), ctx(nullptr) {}
+
+            js_string(const js_string& other) = delete;
+
+            ~js_string()
+            {
+                if(ctx)
+                    JS_FreeCString(ctx, this->data());
+            }
+        };
+
+        template <>
+        struct js_traits<js_string>
+        {
+            static js_string unwrap(JSContext * ctx, JSValue v)
+            {
+                int plen;
+                const char * ptr = JS_ToCStringLen(ctx, &plen, v, 0);
+                if(!ptr)
+                    throw exception{};
+                return js_string{ctx, ptr, (std::size_t)plen};
+            }
+
+            static JSValue wrap(JSContext * ctx, js_string str) noexcept
+            {
+                return JS_NewStringLen(ctx, str.data(), (int)str.size());
+            }
+        };
+
+        template <> // slower
+        struct js_traits<std::string>
+        {
+            static std::string unwrap(JSContext * ctx, JSValue v)
+            {
+                auto str_view = js_traits<js_string>::unwrap(ctx, v);
+                return std::string{str_view.data(), str_view.size()};
+            }
+
+            static JSValue wrap(JSContext * ctx, const std::string& str) noexcept
+            {
+                return JS_NewStringLen(ctx, str.data(), (int) str.size());
+            }
+        };
+
+            /*
         template <typename Arg1, typename... Args>
         std::tuple<Arg1, Args...> to_tuple_impl(JSContext * ctx, JSValue * argv)
         {
@@ -255,7 +340,22 @@ namespace qjs {
             {
                 return JS_GetPropertyStr(ctx, this_obj, name);
             }
+        };
 
+        template <>
+        struct js_property_traits<uint32_t>
+        {
+            static void set_property(JSContext * ctx, JSValue this_obj, uint32_t idx, JSValue value)
+            {
+                int err = JS_SetPropertyUint32(ctx, this_obj, idx, value);
+                if(err < 0)
+                    throw exception{};
+            }
+
+            static JSValue get_property(JSContext * ctx, JSValue this_obj, uint32_t idx) noexcept
+            {
+                return JS_GetPropertyUint32(ctx, this_obj, idx);
+            }
         };
 
         template <typename Key>
@@ -265,9 +365,10 @@ namespace qjs {
             JSValue this_obj;
             Key key;
 
-            operator JSValue() const
+            template <typename Value>
+            operator Value() const
             {
-                return js_property_traits<Key>::get_property(ctx, this_obj, key);
+                return js_traits<Value>::unwrap(ctx, js_property_traits<Key>::get_property(ctx, this_obj, key));
             }
 
             template <typename Value>
@@ -471,7 +572,7 @@ namespace qjs {
         {
             JSValue v = JS_Eval(ctx, buffer.data(), buffer.size(), filename, eval_flags);
             //if(JS_IsException(v))
-                //throw detail::exception{};
+            //throw detail::exception{};
             return Value{ctx, v};
         }
 

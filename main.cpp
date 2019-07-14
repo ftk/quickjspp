@@ -18,8 +18,6 @@ class test
 {
     int x;
 public:
-    inline static JSClassID QJSClassId;
-
 
     test(int32_t x) : x{x}
     { printf("ctor %d!\n", x); }
@@ -62,6 +60,11 @@ int main(int argc, char ** argv)
     obj["g"] = detail::fwrapper<&test::g>{"g"};
     obj["fun2"] = detail::fwrapper<&f2>{"f2"};
     obj["f"] = detail::fwrapper<&test::f>{"f"};
+    obj[3u] = detail::js_string{"43!"};
+
+    int testint = obj[3u];
+    std::string teststr = obj[3u];
+    std::cout << testint<< teststr;
 
 
     context.registerClass<test>("test_class", std::move(obj));
