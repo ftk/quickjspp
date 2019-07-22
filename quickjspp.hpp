@@ -11,6 +11,7 @@ extern "C" {
 #include <unordered_map>
 #include <cassert>
 #include <memory>
+#include <cstddef>
 
 namespace qjs {
 
@@ -42,7 +43,7 @@ namespace qjs {
         template <>
         struct js_traits<int32_t>
         {
-            static int32_t unwrap(JSContext * ctx, JSValue v)
+            static int32_t unwrap(JSContext * ctx, JSValueConst v)
             {
                 int32_t r;
                 if(JS_ToInt32(ctx, &r, v))
@@ -59,7 +60,7 @@ namespace qjs {
         template <>
         struct js_traits<bool>
         {
-            static bool unwrap(JSContext * ctx, JSValue v) noexcept
+            static bool unwrap(JSContext * ctx, JSValueConst v) noexcept
             {
                 return JS_ToBool(ctx, v);
             }
@@ -71,9 +72,19 @@ namespace qjs {
         };
 
         template <>
+        struct js_traits<void>
+        {
+            static void unwrap(JSContext * ctx, JSValueConst undefined)
+            {
+                if(!JS_IsUndefined(undefined))
+                    throw exception{};
+            }
+        };
+
+        template <>
         struct js_traits<double>
         {
-            static double unwrap(JSContext * ctx, JSValue v)
+            static double unwrap(JSContext * ctx, JSValueConst v)
             {
                 double r;
                 if(JS_ToFloat64(ctx, &r, v))
@@ -111,7 +122,7 @@ namespace qjs {
         template <>
         struct js_traits<js_string>
         {
-            static js_string unwrap(JSContext * ctx, JSValue v)
+            static js_string unwrap(JSContext * ctx, JSValueConst v)
             {
                 int plen;
                 const char * ptr = JS_ToCStringLen(ctx, &plen, v, 0);
@@ -129,7 +140,7 @@ namespace qjs {
         template <> // slower
         struct js_traits<std::string>
         {
-            static std::string unwrap(JSContext * ctx, JSValue v)
+            static std::string unwrap(JSContext * ctx, JSValueConst v)
             {
                 auto str_view = js_traits<js_string>::unwrap(ctx, v);
                 return std::string{str_view.data(), str_view.size()};
@@ -141,29 +152,51 @@ namespace qjs {
             }
         };
 
-            /*
-        template <typename Arg1, typename... Args>
-        std::tuple<Arg1, Args...> to_tuple_impl(JSContext * ctx, JSValue * argv)
-        {
-            if constexpr (sizeof...(Args) == 0)
-                return std::make_tuple<Arg1>(js_traits<std::decay_t<Arg1>>::unwrap(ctx, *argv));
-            else // todo:rewrite
-                return std::tuple_cat(std::make_tuple<Arg1>(js_traits<std::decay_t<Arg1>>::unwrap(ctx, *argv)),
-                                      to_tuple_impl<Args...>(ctx, argv + 1));
-        }
-*/
+
         template <class Tuple, std::size_t... I>
-        Tuple unwrap_args_impl(JSContext * ctx, JSValue * argv, std::index_sequence<I...>)
+        Tuple unwrap_args_impl(JSContext * ctx, JSValueConst * argv, std::index_sequence<I...>)
         {
             return Tuple{js_traits<std::decay_t<std::tuple_element_t<I, Tuple>>>::unwrap(ctx, argv[I])...};
         }
 
         template <typename... Args>
-        std::tuple<Args...> unwrap_args(JSContext * ctx, JSValue * argv)
+        std::tuple<Args...> unwrap_args(JSContext * ctx, JSValueConst * argv)
         {
             return unwrap_args_impl<std::tuple<Args...>>(ctx, argv, std::make_index_sequence<sizeof...(Args)>());
         }
 
+        template <typename R, typename... Args, typename Callable>
+        JSValue wrap_call(JSContext * ctx, Callable&& f, JSValueConst * argv) noexcept
+        {
+            try
+            {
+                if constexpr(std::is_same_v<R, void>)
+                {
+                    std::apply(std::forward<Callable>(f), unwrap_args<Args...>(ctx, argv));
+                    return JS_UNDEFINED;
+                } else
+                {
+                    return js_traits<std::decay_t<R>>::wrap(ctx, std::apply(std::forward<Callable>(f), unwrap_args<Args...>(ctx, argv)));
+                }
+            }
+            catch(exception)
+            {
+                return JS_EXCEPTION;
+            }
+        }
+
+
+        template <class Tuple, std::size_t... I>
+        void wrap_args_impl(JSContext * ctx, JSValue * argv, Tuple tuple, std::index_sequence<I...>)
+        {
+            ((argv[I] = js_traits<std::decay_t<std::tuple_element_t<I, Tuple>>>::wrap(ctx, std::get<I>(tuple))), ...);
+        }
+
+        template <typename... Args>
+        void wrap_args(JSContext * ctx, JSValue * argv, Args&&... args)
+        {
+            wrap_args_impl(ctx, argv, std::make_tuple(std::forward<Args>(args)...), std::make_index_sequence<sizeof...(Args)>());
+        }
         // free function
 
         template <auto F>
@@ -177,24 +210,9 @@ namespace qjs {
         {
             static JSValue wrap(JSContext * ctx, fwrapper<F> fw)
             {
-                return JS_NewCFunction(ctx, [](JSContext * ctx, JSValue this_value, int argc,
-                                               JSValue * argv) noexcept -> JSValue {
-                    //if(argc < sizeof...(Args))
-                    //return JS_EXCEPTION;
-                    try
-                    {
-                        if constexpr (std::is_same_v<R, void>)
-                        {
-                            std::apply(F, detail::unwrap_args<Args...>(ctx, argv));
-                            return JS_UNDEFINED;
-                        } else
-                            return js_traits<R>::wrap(ctx,
-                                                      std::apply(F, detail::unwrap_args<Args...>(ctx, argv))
-                            );
-                    } catch(detail::exception) // todo: inspect exception
-                    {
-                        return JS_EXCEPTION;
-                    }
+                return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
+                                               JSValueConst * argv) noexcept -> JSValue {
+                    return wrap_call<R, Args...>(ctx, F, argv);
                 }, fw.name, sizeof...(Args));
 
             }
@@ -207,8 +225,8 @@ namespace qjs {
         {
             static JSValue wrap(JSContext * ctx, fwrapper<F> fw)
             {
-                return JS_NewCFunction(ctx, [](JSContext * ctx, JSValue this_value, int argc,
-                                               JSValue * argv) noexcept -> JSValue {
+                return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
+                                               JSValueConst * argv) noexcept -> JSValue {
                     //if(argc < sizeof...(Args))
                     //return JS_EXCEPTION;
                     try
@@ -221,7 +239,7 @@ namespace qjs {
                                                          detail::unwrap_args<Args...>(ctx, argv)));
                             return JS_UNDEFINED;
                         } else
-                            return js_traits<R>::wrap(ctx,
+                            return js_traits<std::decay_t<R>>::wrap(ctx,
                                                       std::apply(F, std::tuple_cat(std::make_tuple(this_sp.get()),
                                                                                    detail::unwrap_args<Args...>(ctx,
                                                                                                                 argv)))
@@ -241,6 +259,7 @@ namespace qjs {
         template <class T, typename... Args>
         struct ctor_wrapper
         {
+            static_assert(std::is_constructible<T, Args...>::value, "no such constructor!");
             const char * name = nullptr;
         };
 
@@ -249,19 +268,9 @@ namespace qjs {
         {
             static JSValue wrap(JSContext * ctx, ctor_wrapper<T, Args...> cw)
             {
-                return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValue this_value, int argc,
-                                                JSValue * argv) noexcept -> JSValue {
-                    try
-                    {
-
-                        return js_traits<std::shared_ptr<T>>::wrap(ctx,
-                                                                   std::apply(std::make_shared<T, Args...>,
-                                                                              detail::unwrap_args<Args...>(ctx, argv))
-                        );
-                    } catch(detail::exception)
-                    {
-                        return JS_EXCEPTION;
-                    }
+                return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
+                                                JSValueConst * argv) noexcept -> JSValue {
+                    return wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
                 }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
 
             }
@@ -289,12 +298,9 @@ namespace qjs {
                             delete pptr;
                         }
                 };
-                if(QJSClassId == 0)
-                {
-                    int e = JS_NewClass(JS_GetRuntime(ctx), JS_NewClassID(&QJSClassId), &def);
-                    if(e < 0)
-                        throw exception{};
-                }
+                int e = JS_NewClass(JS_GetRuntime(ctx), JS_NewClassID(&QJSClassId), &def);
+                if(e < 0)
+                    throw exception{};
                 JS_SetClassProto(ctx, QJSClassId, proto);
             }
 
@@ -302,13 +308,17 @@ namespace qjs {
             {
                 if(QJSClassId == 0) // not registered
                     throw exception{};
-                auto pptr = new std::shared_ptr<T>(std::move(ptr));
                 auto jsobj = JS_NewObjectClass(ctx, QJSClassId);
+                if(JS_IsException(jsobj))
+                {
+                    return jsobj;
+                }
+                auto pptr = new std::shared_ptr<T>(std::move(ptr));
                 JS_SetOpaque(jsobj, pptr);
                 return jsobj;
             }
 
-            static const std::shared_ptr<T>& unwrap(JSContext * ctx, JSValue v)
+            static const std::shared_ptr<T>& unwrap(JSContext * ctx, JSValueConst v)
             {
                 auto ptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, QJSClassId));
                 if(!ptr)
@@ -316,6 +326,69 @@ namespace qjs {
                 return *ptr;
             }
         };
+
+
+
+        struct function // std::function replacement
+        {
+            JSValue (*invoker)(function * self, JSContext * ctx, JSValueConst this_value, int argc, JSValueConst * argv) = nullptr;
+            void (*destroyer)(function * self) = nullptr;
+            alignas(std::max_align_t) char functor[];
+
+            template <typename Functor>
+            static function * create(Functor&& f)
+            {
+                char * data = new char[sizeof(function) + sizeof(Functor)];
+                auto fptr = reinterpret_cast<function *>(data);
+                auto functorptr = reinterpret_cast<Functor *>(fptr->functor);
+                new(functorptr) Functor(std::forward<Functor>(f));
+                fptr->destroyer = nullptr;
+                if constexpr(!std::is_trivially_destructible_v<Functor>)
+                {
+                    fptr->destroyer = [](function * fptr) {
+                        auto functorptr = reinterpret_cast<Functor *>(fptr->functor);
+                        functorptr->~Functor();
+                    };
+                }
+                return fptr;
+            }
+        };
+
+        template <>
+        struct js_traits<function>
+        {
+            inline static JSClassID QJSClassId;
+            static void register_class(JSContext * ctx, const char * name)
+            {
+                JSClassDef def{
+                        name,
+                        // destructor
+                        [](JSRuntime * rt, JSValue obj) noexcept {
+                            auto pptr = reinterpret_cast<function *>(JS_GetOpaque(obj, QJSClassId));
+                            if(!pptr)
+                            {
+                                assert(false && "bad destructor");
+                            }
+                            if(pptr->destroyer)
+                                pptr->destroyer(pptr);
+                            auto cptr = reinterpret_cast<char *>(pptr);
+                            delete [] cptr;
+                        },
+                        nullptr, // mark
+                        // call
+                        [](JSContext *ctx, JSValueConst func_obj, JSValueConst this_val, int argc, JSValueConst *argv) -> JSValue {
+                            auto ptr = reinterpret_cast<function *>(JS_GetOpaque2(ctx, func_obj, QJSClassId));
+                            if(!ptr)
+                                return JS_EXCEPTION;
+                            return ptr->invoker(ptr, ctx, this_val, argc, argv);
+                        }
+                };
+                int e = JS_NewClass(JS_GetRuntime(ctx), JS_NewClassID(&QJSClassId), &def);
+                if(e < 0)
+                    throw exception{};
+            }
+        };
+
 
         //          properties
 
@@ -439,6 +512,21 @@ namespace qjs {
         }
 
 
+        template <auto F>
+        Value& add(const char * name)
+        {
+            (*this)[name] = detail::fwrapper<F>{name};
+            return *this;
+        }
+
+        template <typename R, typename... Args, typename Function>
+        //std::enable_if_t<std::is_invocable_r<R, Function, Args...>::value, Value&>
+                Value& add(const char * name, Function&& f)
+        {
+            (*this)[name] = detail::js_traits<std::function<R (Args...)>>::wrap(ctx, std::forward<Function>(f));
+            return *this;
+        }
+
     };
 
 
@@ -522,6 +610,11 @@ namespace qjs {
 
         std::vector<Module> modules;
     private:
+        void init()
+        {
+            JS_SetContextOpaque(ctx, this);
+            detail::js_traits<detail::function>::register_class(ctx, "");
+        }
     public:
         Context(Runtime& rt) : Context(rt.rt)
         {}
@@ -531,12 +624,12 @@ namespace qjs {
             ctx = JS_NewContext(rt);
             if(!ctx)
                 throw detail::exception{};
-            JS_SetContextOpaque(ctx, this);
+            init();
         }
 
         Context(JSContext * ctx) : ctx{ctx}
         {
-            JS_SetContextOpaque(ctx, this);
+            init();
         }
 
         Context(const Context&) = delete;
@@ -568,7 +661,7 @@ namespace qjs {
             detail::js_traits<std::shared_ptr<T>>::register_class(ctx, name, proto);
         }
 
-        Value eval(std::string_view buffer, const char * filename, unsigned eval_flags = 0)
+        Value eval(std::string_view buffer, const char * filename = "eval", unsigned eval_flags = 0)
         {
             JSValue v = JS_Eval(ctx, buffer.data(), buffer.size(), filename, eval_flags);
             //if(JS_IsException(v))
@@ -588,5 +681,45 @@ namespace qjs {
 
     };
 
+
+    namespace detail {
+
+        template <typename R, typename... Args>
+        struct js_traits<std::function<R (Args...)>>
+        {
+            static std::function<R (Args...)> unwrap(JSContext * ctx, JSValueConst fun_obj)
+            {
+                return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&&... args) -> R {
+                    const int argc = sizeof...(Args);
+                    JSValue argv[argc];
+                    wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
+                    JSValue result;
+                    //if(JS_IsObject(argv[0])) // constexpr?
+                    //   result = JS_Call(ctx, fun_obj, argv[0], argc - 1, const_cast<JSValueConst*>(argv + 1));
+                    //else
+                    result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, argc, const_cast<JSValueConst*>(argv));
+                    for(int i = 0; i < argc; i++) JS_FreeValue(jsfun_obj.ctx, argv[i]);
+                    return js_traits<R>::unwrap(jsfun_obj.ctx, result);
+                };
+            }
+
+            template <typename Functor>
+            static JSValue wrap(JSContext * ctx, Functor&& functor)
+            {
+                auto obj = JS_NewObjectClass(ctx, js_traits<function>::QJSClassId);
+                if(JS_IsException(obj))
+                    return JS_EXCEPTION;
+                auto fptr = function::create(std::forward<Functor>(functor));
+                fptr->invoker = [](function * self, JSContext * ctx, JSValueConst this_value, int argc, JSValueConst * argv) {
+                    assert(self);
+                    auto f = reinterpret_cast<Functor *>(&self->functor);
+                    return wrap_call<R, Args...>(ctx, *f, argv);
+                };
+                JS_SetOpaque(obj, fptr);
+                return obj;
+            }
+        };
+
+    }
 
 }

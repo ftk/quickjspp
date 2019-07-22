@@ -8,38 +8,45 @@
 #include <cstring>
 #include <ctime>
 
-
 int32_t f(int32_t x)
 {
     return x * x;
 };
 
+#define TYPES bool, int32_t, double, std::shared_ptr<test>, const std::shared_ptr<test>&, std::string, const std::string&
+
 class test
 {
-    int x;
+    bool b;
+    int32_t i;
+    double d;
+    std::shared_ptr<test> spt;
+    std::string s;
 public:
 
-    test(int32_t x) : x{x}
-    { printf("ctor %d!\n", x); }
+    test(int32_t i, TYPES) : i(i)
+    { printf("ctor!\n"); }
+
+    test(int32_t i) : i(i)
+    { printf("ctor %d!\n", i); }
 
     test(const test&) = delete;
 
     ~test()
     { printf("dtor!\n"); }
 
-    void f()
-    { printf("f(%p): x=%d\n", this, x); }
+    int32_t fi(TYPES) { i++; return i; }
+    bool fb(TYPES) { i++; return b; }
+    double fd(TYPES) { i++; return d; }
+    const std::shared_ptr<test>& fspt(TYPES) { i++; return spt; }
+    const std::string& fs(TYPES) { i++; return s; }
+    void f(TYPES) { i++; }
 
-    static void g()
-    { printf("g()\n"); }
+    static void fstatic(TYPES) {}
 };
 
 
-int32_t f2(int32_t x, std::shared_ptr<test> ptr)
-{
-    std::cout << ptr.get() << std::endl;
-    return x * x;
-};
+void f(TYPES) {}
 
 
 int main(int argc, char ** argv)
@@ -54,28 +61,31 @@ int main(int argc, char ** argv)
     Context context(runtime);
     ctx = context.ctx;
 
-    auto obj = context.newObject();
-    obj["test"] = 54;
-    obj["test2"] = 56;
-    obj["g"] = detail::fwrapper<&test::g>{"g"};
-    obj["fun2"] = detail::fwrapper<&f2>{"f2"};
-    obj["f"] = detail::fwrapper<&test::f>{"f"};
-    obj[3u] = detail::js_string{"43!"};
+    {
+        auto obj = context.newObject();
+        obj["vi"] = 54;
+        obj["vb"] = true;
+        obj["vd"] = 56.0;
+        obj["vs"] = std::string{"test string"};
+        obj.add<int, int>("lambda", [](int x) -> int { return x * x; });
 
-    int testint = obj[3u];
-    std::string teststr = obj[3u];
-    std::cout << testint<< teststr;
+        obj.add<&test::fi>("fi");
+        obj.add<&test::fb>("fb");
+        obj.add<&test::fd>("fd");
+        obj.add<&test::fs>("fs");
+        obj.add<&test::fspt>("fspt");
+        obj.add<&test::f>("f");
+        obj.add<&test::fstatic>("fstatic");
 
-
-    context.registerClass<test>("test_class", std::move(obj));
+        context.registerClass<test>("test_class", std::move(obj));
+    }
 
 
     context.addModule("test")
-            .add("sqr", detail::fwrapper<&f>{"sqr"})
-            .add("sqr2", detail::fwrapper<&f>{})
-            .add("p", detail::fwrapper<&f2>{"p"})
-            .add("obj", obj)
-            .add("Test", detail::ctor_wrapper<test, int32_t>{"Test"});
+            //.add("obj", obj)
+            .add("Test", detail::ctor_wrapper<test, int32_t, TYPES>{"Test"})
+    .add("TestSimple", detail::ctor_wrapper<test, int32_t>{"TestSimple"});
+
 
 
 
@@ -97,7 +107,36 @@ int main(int argc, char ** argv)
     context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
     const char * filename = argv[1];
 
+    {
+        auto xxx = context.eval("var t = new test.TestSimple(12);"
+                                "var q = new test.Test(13, t.vb, t.vi, t.vd, t, t, t.vs, t.vs);"
+                                "q.fb(t.vb, t.vi, t.vd, t, t, t.vs, \"test\");"
+                                "q.fd(t.vb, t.vi, t.vd, t, t, t.vs, \"test\");"
+                                "q.fs(t.vb, t.vi, t.vd, t, t, \"test\", t.vs);"
+                                "q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\");"
+                                "q.fi(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
+        assert(xxx.cast<int>() == 18);
+        auto yyy = context.eval("q.fi.bind(t)(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
+        assert(yyy.cast<int>() == 13);
+    }
+    try
+    {
+        auto f = context.eval("q.fi.bind(q)").cast<std::function<int32_t(TYPES)>>();
+        int xxx = f(false, 1, 0., context.eval("q").cast<std::shared_ptr<test>>(),
+                    context.eval("t").cast<std::shared_ptr<test>>(), "test string", std::string{"test"});
+        assert(xxx == 19);
+    }
+    catch(detail::exception)
+    {
+        js_std_dump_error(ctx);
+    }
+
+    if(filename)
     context.evalFile(filename, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_SHEBANG);
+
+    JSMemoryUsage mem;
+    JS_ComputeMemoryUsage(rt, &mem);
+    JS_DumpMemoryUsage(stderr, &mem, rt);
 
     js_std_loop(ctx);
 
