@@ -1,0 +1,54 @@
+diff --git a/quickjs/quickjs.h b/quickjs/quickjs.h
+index 60cd0e7..4cb62b5 100644
+--- a/quickjs/quickjs.h
++++ b/quickjs/quickjs.h
+@@ -201,8 +201,13 @@ typedef struct JSValue {
+ #define JS_VALUE_GET_FLOAT64(v) ((v).u.float64)
+ #define JS_VALUE_GET_PTR(v) ((v).u.ptr)
+ 
++#ifdef __cplusplus
++#define JS_MKVAL(tag, val) JSValue{ JSValueUnion{.int32 = val}, tag }
++#define JS_MKPTR(tag, p) JSValue{ JSValueUnion{.ptr = p}, tag }
++#else
+ #define JS_MKVAL(tag, val) (JSValue){ .u.int32 = val, tag }
+ #define JS_MKPTR(tag, p) (JSValue){ .u.ptr = p, tag }
++#endif
+ 
+ #define JS_TAG_IS_FLOAT64(tag) ((unsigned)(tag) == JS_TAG_FLOAT64)
+ 
+@@ -555,7 +560,7 @@ void __JS_FreeValue(JSContext *ctx, JSValue v);
+ static inline void JS_FreeValue(JSContext *ctx, JSValue v)
+ {
+     if (JS_VALUE_HAS_REF_COUNT(v)) {
+-        JSRefCountHeader *p = JS_VALUE_GET_PTR(v);
++        JSRefCountHeader *p = (JSRefCountHeader *)JS_VALUE_GET_PTR(v);
+         if (--p->ref_count <= 0) {
+             __JS_FreeValue(ctx, v);
+         }
+@@ -565,7 +570,7 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v);
+ static inline void JS_FreeValueRT(JSRuntime *rt, JSValue v)
+ {
+     if (JS_VALUE_HAS_REF_COUNT(v)) {
+-        JSRefCountHeader *p = JS_VALUE_GET_PTR(v);
++        JSRefCountHeader *p = (JSRefCountHeader *)JS_VALUE_GET_PTR(v);
+         if (--p->ref_count <= 0) {
+             __JS_FreeValueRT(rt, v);
+         }
+@@ -575,7 +580,7 @@ static inline void JS_FreeValueRT(JSRuntime *rt, JSValue v)
+ static inline JSValue JS_DupValue(JSContext *ctx, JSValueConst v)
+ {
+     if (JS_VALUE_HAS_REF_COUNT(v)) {
+-        JSRefCountHeader *p = JS_VALUE_GET_PTR(v);
++        JSRefCountHeader *p = (JSRefCountHeader *)JS_VALUE_GET_PTR(v);
+         p->ref_count++;
+     }
+     return (JSValue)v;
+@@ -584,7 +589,7 @@ static inline JSValue JS_DupValue(JSContext *ctx, JSValueConst v)
+ static inline JSValue JS_DupValueRT(JSRuntime *rt, JSValueConst v)
+ {
+     if (JS_VALUE_HAS_REF_COUNT(v)) {
+-        JSRefCountHeader *p = JS_VALUE_GET_PTR(v);
++        JSRefCountHeader *p = (JSRefCountHeader *)JS_VALUE_GET_PTR(v);
+         p->ref_count++;
+     }
+     return (JSValue)v;
