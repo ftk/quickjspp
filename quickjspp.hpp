@@ -234,7 +234,9 @@ namespace qjs {
                     return JS_UNDEFINED;
                 } else
                 {
-                    return js_traits<std::decay_t<R>>::wrap(ctx, std::apply(std::forward<Callable>(f), unwrap_args<Args...>(ctx, argv)));
+                    return js_traits<std::decay_t<R>>::wrap(ctx,
+                                                            std::apply(std::forward<Callable>(f),
+                                                                       unwrap_args<Args...>(ctx, argv)));
                 }
             }
             catch(exception)
@@ -243,6 +245,29 @@ namespace qjs {
             }
         }
 
+        template <typename R, typename FirstArg, typename... Args, typename Callable>
+        JSValue wrap_this_call(JSContext * ctx, Callable&& f, JSValueConst this_value, JSValueConst * argv) noexcept
+        {
+            try
+            {
+                if constexpr(std::is_same_v<R, void>)
+                {
+                    std::apply(std::forward<Callable>(f), std::tuple_cat(unwrap_args<FirstArg>(ctx, &this_value),
+                            unwrap_args<Args...>(ctx, argv)));
+                    return JS_UNDEFINED;
+                } else
+                {
+                    return js_traits<std::decay_t<R>>::wrap(ctx,
+                                                            std::apply(std::forward<Callable>(f),
+                                                                       std::tuple_cat(unwrap_args<FirstArg>(ctx, &this_value),
+                                                                                      unwrap_args<Args...>(ctx, argv))));
+                }
+            }
+            catch(exception)
+            {
+                return JS_EXCEPTION;
+            }
+        }
 
         template <class Tuple, std::size_t... I>
         void wrap_args_impl(JSContext * ctx, JSValue * argv, Tuple tuple, std::index_sequence<I...>)
@@ -255,22 +280,25 @@ namespace qjs {
         {
             wrap_args_impl(ctx, argv, std::make_tuple(std::forward<Args>(args)...), std::make_index_sequence<sizeof...(Args)>());
         }
-        // free function
 
-        template <auto F>
+        template <auto F, bool PassThis = false /* pass this as the first argument */>
         struct fwrapper
         {
             const char * name = nullptr;
         };
 
-        template <typename R, typename... Args, R (* F)(Args...)>
-        struct js_traits<fwrapper<F>>
+        // free function
+        template <typename R, typename... Args, R (* F)(Args...), bool PassThis>
+        struct js_traits<fwrapper<F, PassThis>>
         {
-            static JSValue wrap(JSContext * ctx, fwrapper<F> fw)
+            static JSValue wrap(JSContext * ctx, fwrapper<F, PassThis> fw) noexcept
             {
                 return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                                JSValueConst * argv) noexcept -> JSValue {
-                    return wrap_call<R, Args...>(ctx, F, argv);
+                    if constexpr(PassThis)
+                        return wrap_this_call<R, Args...>(ctx, F, this_value, argv);
+                    else
+                        return wrap_call<R, Args...>(ctx, F, argv);
                 }, fw.name, sizeof...(Args));
 
             }
@@ -281,31 +309,11 @@ namespace qjs {
         template <typename R, class T, typename... Args, R (T::*F)(Args...)>
         struct js_traits<fwrapper<F>>
         {
-            static JSValue wrap(JSContext * ctx, fwrapper<F> fw)
+            static JSValue wrap(JSContext * ctx, fwrapper<F> fw) noexcept
             {
                 return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                                JSValueConst * argv) noexcept -> JSValue {
-                    //if(argc < sizeof...(Args))
-                    //return JS_EXCEPTION;
-                    try
-                    {
-                        const auto& this_sp = js_traits<std::shared_ptr<T>>::unwrap(ctx, this_value);
-
-                        if constexpr (std::is_same_v<R, void>)
-                        {
-                            std::apply(F, std::tuple_cat(std::make_tuple(this_sp.get()),
-                                                         detail::unwrap_args<Args...>(ctx, argv)));
-                            return JS_UNDEFINED;
-                        } else
-                            return js_traits<std::decay_t<R>>::wrap(ctx,
-                                                      std::apply(F, std::tuple_cat(std::make_tuple(this_sp.get()),
-                                                                                   detail::unwrap_args<Args...>(ctx,
-                                                                                                                argv)))
-                            );
-                    } catch(detail::exception)
-                    {
-                        return JS_EXCEPTION;
-                    }
+                    return wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argv);
                 }, fw.name, sizeof...(Args));
 
             }
@@ -324,7 +332,7 @@ namespace qjs {
         template <class T, typename... Args>
         struct js_traits<ctor_wrapper<T, Args...>>
         {
-            static JSValue wrap(JSContext * ctx, ctor_wrapper<T, Args...> cw)
+            static JSValue wrap(JSContext * ctx, ctor_wrapper<T, Args...> cw) noexcept
             {
                 return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                                 JSValueConst * argv) noexcept -> JSValue {
@@ -517,6 +525,28 @@ namespace qjs {
             }
         };
 
+
+
+        // class member variable getter/setter
+        template <auto M>
+        struct get_set
+        {};
+
+        template <class T, typename R, R T::*M>
+        struct get_set<M>
+        {
+            static const R& get(const std::shared_ptr<T>& ptr)
+            {
+                return *ptr.*M;
+            }
+
+            static R& set(const std::shared_ptr<T>& ptr, R value)
+            {
+                return *ptr.*M = std::move(value);
+            }
+
+        };
+
     }
 
     class Value
@@ -576,20 +606,43 @@ namespace qjs {
         }
 
 
+        // add("f", []() {...});
+        template <typename Function>
+        Value& add(const char * name, Function&& f)
+        {
+            (*this)[name] = detail::js_traits<decltype(std::function{std::forward<Function>(f)})>::wrap(ctx, std::forward<Function>(f));
+            return *this;
+        }
+
+        // add<&f>("f");
+        // add<&T::f>("f");
         template <auto F>
-        Value& add(const char * name)
+        std::enable_if_t<!std::is_member_object_pointer_v<decltype(F)>, Value&>
+        add(const char * name)
         {
             (*this)[name] = detail::fwrapper<F>{name};
             return *this;
         }
 
-        template <typename R, typename... Args, typename Function>
-        //std::enable_if_t<std::is_invocable_r<R, Function, Args...>::value, Value&>
-                Value& add(const char * name, Function&& f)
+        // add<&T::member>("member");
+        template <auto M>
+        std::enable_if_t<std::is_member_object_pointer_v<decltype(M)>, Value&>
+        add(const char * name)
         {
-            (*this)[name] = detail::js_traits<std::function<R (Args...)>>::wrap(ctx, std::forward<Function>(f));
+            auto prop = JS_NewAtom(ctx, name);
+            using fgetter = detail::fwrapper<detail::get_set<M>::get, true>;
+            using fsetter = detail::fwrapper<detail::get_set<M>::set, true>;
+            int ret = JS_DefinePropertyGetSet(ctx, v, prop,
+                                    detail::js_traits<fgetter>::wrap(ctx, fgetter{name}),
+                                    detail::js_traits<fsetter>::wrap(ctx, fsetter{name}),
+                                    JS_PROP_WRITABLE // ?
+                    );
+            JS_FreeAtom(ctx, prop);
+            if(ret < 0)
+                throw detail::exception{};
             return *this;
         }
+
 
     };
 
@@ -620,6 +673,7 @@ namespace qjs {
     public:
         JSContext * ctx;
 
+    private:
         class Module
         {
             friend class Context;
@@ -670,7 +724,9 @@ namespace qjs {
                 return add(name, detail::js_traits<T>::wrap(ctx, std::move(value)));
             }
 
-            //Module(const Module&) = delete;
+            Module(const Module&) = delete;
+            Module(Module&&)  = default;
+            //Module& operator=(Module&&) = default;
         };
 
         std::vector<Module, allocator<Module>> modules;

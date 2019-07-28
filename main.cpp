@@ -17,12 +17,12 @@ int32_t f(int32_t x)
 
 class test
 {
+public:
     bool b;
     int32_t i;
     double d;
     std::shared_ptr<test> spt;
     std::string s;
-public:
 
     test(int32_t i, TYPES) : i(i)
     { printf("ctor!\n"); }
@@ -67,7 +67,7 @@ int main(int argc, char ** argv)
         obj["vb"] = true;
         obj["vd"] = 56.0;
         obj["vs"] = std::string{"test string"};
-        obj.add<int, int>("lambda", [](int x) -> int { return x * x; });
+        obj.add("lambda", [](int x) -> int { return x * x; });
 
         obj.add<&test::fi>("fi");
         obj.add<&test::fb>("fb");
@@ -76,6 +76,12 @@ int main(int argc, char ** argv)
         obj.add<&test::fspt>("fspt");
         obj.add<&test::f>("f");
         obj.add<&test::fstatic>("fstatic");
+
+        obj.add<&test::i>("i");
+        obj.add<&test::b>("b");
+        obj.add<&test::d>("d");
+        obj.add<&test::s>("s");
+        obj.add<&test::spt>("spt");
 
         context.registerClass<test>("test_class", std::move(obj));
     }
@@ -110,10 +116,14 @@ int main(int argc, char ** argv)
     {
         auto xxx = context.eval("var t = new test.TestSimple(12);"
                                 "var q = new test.Test(13, t.vb, t.vi, t.vd, t, t, t.vs, t.vs);"
-                                "q.fb(t.vb, t.vi, t.vd, t, t, t.vs, \"test\");"
-                                "q.fd(t.vb, t.vi, t.vd, t, t, t.vs, \"test\");"
-                                "q.fs(t.vb, t.vi, t.vd, t, t, \"test\", t.vs);"
-                                "q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\");"
+                                "q.b = true;"
+                                "q.d = 456.789;"
+                                "q.s = \"STRING\";"
+                                "q.spt = t;"
+                                "console.log(q.b === q.fb(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
+                                "console.log(q.d === q.fd(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
+                                "console.log(q.s === q.fs(t.vb, t.vi, t.vd, t, t, \"test\", t.vs));"
+                                "console.log(q.spt === q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // false
                                 "q.fi(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
         assert(xxx.cast<int>() == 18);
         auto yyy = context.eval("q.fi.bind(t)(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
