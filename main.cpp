@@ -142,7 +142,7 @@ int main(int argc, char ** argv)
     }
 
     if(filename)
-    context.evalFile(filename, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_SHEBANG);
+    context.evalFile(filename, JS_EVAL_TYPE_MODULE);
 
     JSMemoryUsage mem;
     JS_ComputeMemoryUsage(rt, &mem);
