@@ -319,6 +319,18 @@ namespace qjs {
             }
         };
 
+        template <typename R, class T, typename... Args, R (T::*F)(Args...) const>
+        struct js_traits<fwrapper<F>>
+        {
+            static JSValue wrap(JSContext * ctx, fwrapper<F> fw) noexcept
+            {
+                return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
+                                               JSValueConst * argv) noexcept -> JSValue {
+                    return wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argv);
+                }, fw.name, sizeof...(Args));
+
+            }
+        };
 
         // class constructor
 

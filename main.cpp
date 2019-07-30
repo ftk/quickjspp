@@ -8,10 +8,6 @@
 #include <cstring>
 #include <ctime>
 
-int32_t f(int32_t x)
-{
-    return x * x;
-};
 
 #define TYPES bool, int32_t, double, std::shared_ptr<test>, const std::shared_ptr<test>&, std::string, const std::string&
 
@@ -19,7 +15,7 @@ class test
 {
 public:
     bool b;
-    int32_t i;
+    mutable int32_t i;
     double d;
     std::shared_ptr<test> spt;
     std::string s;
@@ -35,9 +31,9 @@ public:
     ~test()
     { printf("dtor!\n"); }
 
-    int32_t fi(TYPES) { i++; return i; }
-    bool fb(TYPES) { i++; return b; }
-    double fd(TYPES) { i++; return d; }
+    int32_t fi(TYPES) const { i++; return i; }
+    bool fb(TYPES) noexcept { i++; return b; }
+    double fd(TYPES) const noexcept { i++; return d; }
     const std::shared_ptr<test>& fspt(TYPES) { i++; return spt; }
     const std::string& fs(TYPES) { i++; return s; }
     void f(TYPES) { i++; }
