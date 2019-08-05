@@ -16,7 +16,7 @@ class test
 public:
     bool b;
     mutable int32_t i;
-    double d;
+    const double d = 7.;
     std::shared_ptr<test> spt;
     std::string s;
 

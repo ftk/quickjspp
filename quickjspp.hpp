@@ -5,13 +5,15 @@ extern "C" {
 #include "quickjs/quickjs-libc.h"
 }
 
-#include <algorithm>
-#include <tuple>
-#include <functional>
-#include <unordered_map>
+#include <vector>
+#include <string_view>
+#include <string>
 #include <cassert>
 #include <memory>
 #include <cstddef>
+#include <algorithm>
+#include <tuple>
+#include <functional>
 
 namespace qjs {
 
@@ -547,6 +549,8 @@ namespace qjs {
         template <class T, typename R, R T::*M>
         struct get_set<M>
         {
+            using is_const = std::is_const<R>;
+
             static const R& get(const std::shared_ptr<T>& ptr)
             {
                 return *ptr.*M;
@@ -643,12 +647,24 @@ namespace qjs {
         {
             auto prop = JS_NewAtom(ctx, name);
             using fgetter = detail::fwrapper<detail::get_set<M>::get, true>;
-            using fsetter = detail::fwrapper<detail::get_set<M>::set, true>;
-            int ret = JS_DefinePropertyGetSet(ctx, v, prop,
-                                    detail::js_traits<fgetter>::wrap(ctx, fgetter{name}),
-                                    detail::js_traits<fsetter>::wrap(ctx, fsetter{name}),
-                                    JS_PROP_WRITABLE // ?
-                    );
+            int ret;
+            if constexpr (detail::get_set<M>::is_const::value)
+            {
+                ret = JS_DefinePropertyGetSet(ctx, v, prop,
+                                              detail::js_traits<fgetter>::wrap(ctx, fgetter{name}),
+                                              JS_UNDEFINED,
+                                              0 // ?
+                );
+            }
+            else
+            {
+                using fsetter = detail::fwrapper<detail::get_set<M>::set, true>;
+                ret = JS_DefinePropertyGetSet(ctx, v, prop,
+                                              detail::js_traits<fgetter>::wrap(ctx, fgetter{name}),
+                                              detail::js_traits<fsetter>::wrap(ctx, fsetter{name}),
+                                              JS_PROP_WRITABLE // ?
+                );
+            }
             JS_FreeAtom(ctx, prop);
             if(ret < 0)
                 throw detail::exception{};
