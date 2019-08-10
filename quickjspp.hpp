@@ -413,6 +413,37 @@ namespace qjs {
             }
         };
 
+        // T * - non-owning pointer
+        template <class T>
+        struct js_traits<T *>
+        {
+            static JSValue wrap(JSContext * ctx, T * ptr)
+            {
+                if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
+                    throw exception{};
+                auto jsobj = JS_NewObjectClass(ctx, js_traits<std::shared_ptr<T>>::QJSClassId);
+                if(JS_IsException(jsobj))
+                {
+                    return jsobj;
+                }
+                //auto pptr = new std::shared_ptr<T>(ptr, [](T *){});
+                auto alloc = allocator<std::shared_ptr<T>>{ctx};
+                using atraits = std::allocator_traits<decltype(alloc)>;
+                auto pptr = atraits::allocate(alloc, 1);
+                atraits::construct(alloc, pptr, ptr, [](T *){}); // shared_ptr with empty deleter
+
+                JS_SetOpaque(jsobj, pptr);
+                return jsobj;
+            }
+
+            static T * unwrap(JSContext * ctx, JSValueConst v)
+            {
+                auto ptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, js_traits<std::shared_ptr<T>>::QJSClassId));
+                if(!ptr)
+                    throw exception{};
+                return ptr->get();
+            }
+        };
 
 
         struct function // std::function replacement
