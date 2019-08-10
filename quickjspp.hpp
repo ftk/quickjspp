@@ -758,6 +758,75 @@ namespace qjs {
             Module(const Module&) = delete;
             Module(Module&&)  = default;
             //Module& operator=(Module&&) = default;
+
+
+            // function wrappers
+            template <auto F>
+            Module& function(const char * name)
+            {
+                return add(name, qjs::detail::fwrapper<F>{name});
+            }
+            template <typename F>
+            Module& function(const char * name, F&& f)
+            {
+                return add(name, detail::js_traits<decltype(std::function{std::forward<F>(f)})>::wrap(std::forward<F>(f)));
+            }
+
+            // class register wrapper
+        private:
+            template <class T>
+            class class_registrar
+            {
+                const char * name;
+                qjs::Value prototype;
+                qjs::Context::Module& module;
+                qjs::Context& context;
+            public:
+                explicit class_registrar(const char * name, qjs::Context::Module& module, qjs::Context& context) :
+                        name(name),
+                        prototype(context.newObject()),
+                        module(module),
+                        context(context)
+                {
+                }
+
+                class_registrar(const class_registrar&) = delete;
+
+                template <typename F>
+                class_registrar& fun(const char * name, F&& f)
+                {
+                    prototype.add(name, std::forward<F>(f));
+                    return *this;
+                }
+
+                template <auto F>
+                class_registrar& fun(const char * name)
+                {
+                    prototype.add<F>(name);
+                    return *this;
+                }
+
+                template <typename... Args>
+                class_registrar& constructor(const char * name = nullptr)
+                {
+                    if(!name)
+                        name = this->name;
+                    module.add(name, qjs::detail::ctor_wrapper<T, Args...>{name});
+                    return *this;
+                }
+
+                ~class_registrar()
+                {
+                    context.registerClass<T>(name, std::move(prototype));
+                }
+            };
+        public:
+            template <class T>
+            class_registrar<T> class_(const char * name)
+            {
+                return class_registrar<T>{name, *this, *reinterpret_cast<qjs::Context *>(JS_GetContextOpaque(ctx))};
+            }
+
         };
 
         std::vector<Module, allocator<Module>> modules;
