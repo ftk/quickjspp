@@ -701,7 +701,7 @@ namespace qjs {
     public:
         JSContext * ctx;
 
-    private:
+    //private:
         class Module
         {
             friend class Context;
@@ -710,7 +710,7 @@ namespace qjs {
             JSContext * ctx;
             const char * name;
 
-            using nvp = std::pair<const char *, JSValue>;
+            using nvp = std::pair<const char *, Value>;
             std::vector<nvp, allocator<nvp>> exports;
         public:
             Module(JSContext * ctx, const char * name) : ctx(ctx), name(name), exports(JS_GetRuntime(ctx))
@@ -719,13 +719,13 @@ namespace qjs {
                     auto context = reinterpret_cast<Context *>(JS_GetContextOpaque(ctx));
                     if(!context)
                         return -1;
-                    auto it = std::find_if(context->modules.cbegin(), context->modules.cend(),
+                    auto it = std::find_if(context->modules.begin(), context->modules.end(),
                                            [m](const Module& module) { return module.m == m; });
                     if(it == context->modules.end())
                         return -1;
                     for(const auto& e : it->exports)
                     {
-                        if(JS_SetModuleExport(ctx, m, e.first, e.second) != 0)
+                        if(JS_SetModuleExport(ctx, m, e.first, JS_DupValue(ctx, e.second.v)) != 0)
                             return -1;
                     }
                     return 0;
@@ -736,14 +736,17 @@ namespace qjs {
 
             Module& add(const char * name, JSValue value)
             {
-                exports.push_back({name, value});
+                exports.push_back({name, {ctx, value}});
                 JS_AddModuleExport(ctx, m, name);
                 return *this;
             }
 
             Module& add(const char * name, Value value)
             {
-                return add(name, value.release());
+                assert(value.ctx == ctx);
+                exports.push_back({name, std::move(value)});
+                JS_AddModuleExport(ctx, m, name);
+                return *this;
             }
 
             template <typename T>
@@ -785,6 +788,7 @@ namespace qjs {
 
         ~Context()
         {
+            modules.clear();
             JS_FreeContext(ctx);
         }
 
