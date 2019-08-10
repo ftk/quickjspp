@@ -11,12 +11,24 @@
 
 #define TYPES bool, int32_t, double, std::shared_ptr<test>, const std::shared_ptr<test>&, std::string, const std::string&
 
-class test
+class base_test
+{
+public:
+    double base_field;
+
+    double base_method(double x)
+    {
+        std::swap(x, base_field);
+        return x;
+    }
+};
+
+class test : public base_test
 {
 public:
     bool b;
     mutable int32_t i;
-    const double d = 7.;
+    double d = 7.;
     std::shared_ptr<test> spt;
     std::string s;
 
@@ -44,7 +56,33 @@ public:
 
 void f(TYPES) {}
 
+void qjs_glue(qjs::Context::Module& m) {
+    m.function<&::f>("f"); // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
+    m.class_<::base_test>("base_test")
+                    // implicit: .constructor<::base_test const &>()
+                    // implicit: .constructor<>()
+            .fun<&::base_test::base_method>("base_method") // (double)
+            .fun<&::base_test::base_field>("base_field") // double
+            ;
 
+    m.class_<::test>("test")
+            //.base<::base_test>()
+            .constructor<::int32_t, bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &>("Test")
+            .constructor<::int32_t>("TestSimple")
+            .fun<&::test::fi>("fi") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
+            .fun<&::test::fb>("fb") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
+            .fun<&::test::fd>("fd") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
+            .fun<&::test::fspt>("fspt") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const&, ::std::string, ::std::string const &)
+            .fun<&::test::fs>("fs") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
+            .fun<&::test::f>("f") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
+            .fun<&::test::fstatic>("fstatic") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test>const &, ::std::string, ::std::string const &)
+            .fun<&::test::b>("b") // bool
+            .fun<&::test::i>("i") // ::int32_t
+            .fun<&::test::d>("d") // double
+            .fun<&::test::spt>("spt") // ::std::shared_ptr<test>
+            .fun<&::test::s>("s") // ::std::string
+            ;
+} // qjs_glue
 int main(int argc, char ** argv)
 {
     JSRuntime * rt;
@@ -57,38 +95,7 @@ int main(int argc, char ** argv)
     Context context(runtime);
     ctx = context.ctx;
 
-    {
-        auto obj = context.newObject();
-        obj["vi"] = 54;
-        obj["vb"] = true;
-        obj["vd"] = 56.0;
-        obj["vs"] = std::string{"test string"};
-        obj.add("lambda", [](int x) -> int { return x * x; });
-
-        obj.add<&test::fi>("fi");
-        obj.add<&test::fb>("fb");
-        obj.add<&test::fd>("fd");
-        obj.add<&test::fs>("fs");
-        obj.add<&test::fspt>("fspt");
-        obj.add<&test::f>("f");
-        obj.add<&test::fstatic>("fstatic");
-
-        obj.add<&test::i>("i");
-        obj.add<&test::b>("b");
-        obj.add<&test::d>("d");
-        obj.add<&test::s>("s");
-        obj.add<&test::spt>("spt");
-
-        context.registerClass<test>("test_class", std::move(obj));
-    }
-
-
-    context.addModule("test")
-            //.add("obj", obj)
-            .add("Test", detail::ctor_wrapper<test, int32_t, TYPES>{"Test"})
-    .add("TestSimple", detail::ctor_wrapper<test, int32_t>{"TestSimple"});
-
-
+    qjs_glue(context.addModule("test"));
 
 
     /* loader for ES6 modules */
@@ -109,28 +116,31 @@ int main(int argc, char ** argv)
     context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
     const char * filename = argv[1];
 
+    try
     {
-        auto xxx = context.eval("var t = new test.TestSimple(12);"
+        auto xxx = context.eval("\"use strict\";"
+                                "var t = new test.TestSimple(12);"
                                 "var q = new test.Test(13, t.vb, t.vi, t.vd, t, t, t.vs, t.vs);"
                                 "q.b = true;"
                                 "q.d = 456.789;"
                                 "q.s = \"STRING\";"
                                 "q.spt = t;"
+                                //"q.base_field = 105.5;"
                                 "console.log(q.b === q.fb(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
                                 "console.log(q.d === q.fd(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
                                 "console.log(q.s === q.fs(t.vb, t.vi, t.vd, t, t, \"test\", t.vs));"
+                                //"console.log(105.5 === q.base_method(5.1));"
+                                //"console.log(5.1 === q.base_field);"
                                 "console.log(q.spt === q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // false
                                 "q.fi(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
         assert(xxx.cast<int>() == 18);
         auto yyy = context.eval("q.fi.bind(t)(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
         assert(yyy.cast<int>() == 13);
-    }
-    try
-    {
+
         auto f = context.eval("q.fi.bind(q)").cast<std::function<int32_t(TYPES)>>();
-        int xxx = f(false, 1, 0., context.eval("q").cast<std::shared_ptr<test>>(),
+        int zzz = f(false, 1, 0., context.eval("q").cast<std::shared_ptr<test>>(),
                     context.eval("t").cast<std::shared_ptr<test>>(), "test string", std::string{"test"});
-        assert(xxx == 19);
+        assert(zzz == 19);
     }
     catch(detail::exception)
     {

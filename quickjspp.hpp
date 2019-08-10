@@ -846,6 +846,20 @@ namespace qjs {
                     return *this;
                 }
 
+                /* TODO: needs casting to base class
+                template <class B>
+                class_registrar& base()
+                {
+                    assert(detail::js_traits<std::shared_ptr<B>>::QJSClassId && "base class is not registered");
+                    auto base_proto = JS_GetClassProto(context.ctx, detail::js_traits<std::shared_ptr<B>>::QJSClassId);
+                    int err = JS_SetPrototype(context.ctx, prototype.v, base_proto);
+                    JS_FreeValue(context.ctx, base_proto);
+                    if(err < 0)
+                        throw detail::exception{};
+                    return *this;
+                }
+                 */
+
                 ~class_registrar()
                 {
                     context.registerClass<T>(name, std::move(prototype));
