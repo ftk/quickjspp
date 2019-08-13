@@ -147,7 +147,7 @@ int main(int argc, char ** argv)
                     context.eval("t").cast<std::shared_ptr<test>>(), "test string", std::string{"test"});
         assert(zzz == 19);
     }
-    catch(detail::exception)
+    catch(exception)
     {
         js_std_dump_error(ctx);
     }
