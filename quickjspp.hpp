@@ -160,11 +160,11 @@ namespace qjs {
         {
             static js_string unwrap(JSContext * ctx, JSValueConst v)
             {
-                int plen;
-                const char * ptr = JS_ToCStringLen(ctx, &plen, v, 0);
+                std::size_t plen;
+                const char * ptr = JS_ToCStringLen(ctx, &plen, v);
                 if(!ptr)
                     throw exception{};
-                return js_string{ctx, ptr, (std::size_t)plen};
+                return js_string{ctx, ptr, plen};
             }
 
             static JSValue wrap(JSContext * ctx, std::string_view str) noexcept
