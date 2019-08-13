@@ -14,11 +14,11 @@
 class base_test
 {
 public:
-    double base_field;
+    std::vector<std::vector<int>> base_field;
 
-    double base_method(double x)
+    int base_method(int x)
     {
-        std::swap(x, base_field);
+        std::swap(x, base_field[0][0]);
         return x;
     }
 };
@@ -60,7 +60,7 @@ void qjs_glue(qjs::Context::Module& m) {
     m.function<&::f>("f"); // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
     m.class_<::base_test>("base_test")
                     // implicit: .constructor<::base_test const &>()
-                    // implicit: .constructor<>()
+            .constructor<>()
             .fun<&::base_test::base_method>("base_method") // (double)
             .fun<&::base_test::base_field>("base_field") // double
             ;
@@ -119,6 +119,11 @@ int main(int argc, char ** argv)
     try
     {
         auto xxx = context.eval("\"use strict\";"
+                                "var b = new test.base_test();"
+                                "b.base_field = [[5],[1,2,3,4],[6]];"
+                                "console.log(b.base_field[1][3] === 4);"
+                                "console.log(b.base_method() === 5);"
+
                                 "var t = new test.TestSimple(12);"
                                 "var q = new test.Test(13, t.vb, t.vi, t.vd, t, t, t.vs, t.vs);"
                                 "q.b = true;"

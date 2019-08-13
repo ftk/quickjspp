@@ -983,6 +983,37 @@ namespace qjs {
             }
         };
 
+        // std::vector <-> Array
+        template <class T>
+        struct js_traits<std::vector<T>>
+        {
+            static JSValue wrap(JSContext * ctx, const std::vector<T>& arr)
+            {
+                auto jsarray = Value{ctx, JS_NewArray(ctx)};
+                if(JS_IsException(jsarray.v))
+                    throw detail::exception{};
+
+                for(uint32_t i = 0; i < (uint32_t) arr.size(); i++)
+                    jsarray[i] = arr[i];
+
+                return std::move(jsarray);
+            }
+
+            static std::vector<T> unwrap(JSContext * ctx, JSValueConst jsarr)
+            {
+                if(!JS_IsArray(ctx, jsarr))
+                    throw exception{};
+                Value jsarray {ctx, JS_DupValue(ctx, jsarr)};
+                std::vector<T> arr;
+                int32_t len = jsarray["length"];
+                arr.reserve((uint32_t)len);
+                for(uint32_t i = 0; i < (uint32_t)len; i++)
+                    arr.push_back(jsarray[i]);
+                return arr;
+            }
+        };
+
+
     }
 
 }
