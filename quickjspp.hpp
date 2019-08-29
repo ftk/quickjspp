@@ -17,7 +17,8 @@ extern "C" {
 
 namespace qjs {
 
-
+/** A custom allocator that uses js_malloc_rt and js_free_rt
+ */
 template <typename T>
 struct allocator
 {
@@ -53,17 +54,31 @@ struct allocator
     bool operator !=(const allocator<U>& other) const
     { return rt != other.rt; }
 };
-
+/** Exception type.
+ * Indicates that exception has occured in JS context.
+ */
 class exception {};
 
+/** Javascript conversion traits.
+ * Describes how to convert type R to/from JSValue.
+ */
 template <typename R>
 struct js_traits
 {
-    //static R unwrap(JSContext * ctx, JSValueConst v);
-    //static JSValue wrap(JSContext * ctx, R value);
+    /** Create an object of C++ type R given JSValue v and JSContext.
+     * This function is intentionally not implemented. User should implement this function for their own type.
+     * @param v This value is passed as JSValueConst so it should be freed by the caller.
+     */
+    static R unwrap(JSContext * ctx, JSValueConst v);
+    /** Create JSValue from an object of type R and JSContext.
+     * This function is intentionally not implemented. User should implement this function for their own type.
+     * @return Returns JSValue which should be freed by the caller.
+     */
+    static JSValue wrap(JSContext * ctx, R value);
 };
 
-// identity
+/** Conversion traits for JSValue (identity).
+ */
 template <>
 struct js_traits<JSValue>
 {
@@ -78,9 +93,13 @@ struct js_traits<JSValue>
     }
 };
 
+/** Conversion traits for int32.
+ */
 template <>
 struct js_traits<int32_t>
 {
+
+    /// @throws exception
     static int32_t unwrap(JSContext * ctx, JSValueConst v)
     {
         int32_t r;
@@ -95,6 +114,8 @@ struct js_traits<int32_t>
     }
 };
 
+/** Conversion traits for boolean.
+ */
 template <>
 struct js_traits<bool>
 {
@@ -109,19 +130,25 @@ struct js_traits<bool>
     }
 };
 
+/** Conversion trait for void.
+ */
 template <>
 struct js_traits<void>
 {
+    /// @throws exception if jsvalue is neither undefined nor null
     static void unwrap(JSContext * ctx, JSValueConst undefined)
     {
-        if(!JS_IsUndefined(undefined))
+        if(!JS_IsUndefined(undefined) && !JS_IsNull(undefined))
             throw exception{};
     }
 };
 
+/** Conversion traits for float64/double.
+ */
 template <>
 struct js_traits<double>
 {
+    /// @throws exception
     static double unwrap(JSContext * ctx, JSValueConst v)
     {
         double r;
@@ -137,6 +164,8 @@ struct js_traits<double>
 };
 
 namespace detail {
+/** Fake std::string_view which frees the string on destruction.
+*/
 class js_string : public std::string_view
 {
     using Base = std::string_view;
@@ -163,6 +192,7 @@ public:
 };
 } // namespace detail
 
+/** Conversion traits from std::string_view and to detail::js_string. */
 template <>
 struct js_traits<std::string_view>
 {
@@ -181,6 +211,7 @@ struct js_traits<std::string_view>
     }
 };
 
+/** Conversion traits for std::string */
 template <> // slower
 struct js_traits<std::string>
 {
@@ -198,7 +229,7 @@ struct js_traits<std::string>
 
 namespace detail {
 
-// unwrap and free value
+/** Helper function to convert and then free JSValue. */
 template <typename T>
 T unwrap_free(JSContext * ctx, JSValue val)
 {
@@ -228,12 +259,24 @@ Tuple unwrap_args_impl(JSContext * ctx, JSValueConst * argv, std::index_sequence
     return Tuple{js_traits<std::decay_t<std::tuple_element_t<I, Tuple>>>::unwrap(ctx, argv[I])...};
 }
 
+/** Helper function to convert an array of JSValues to a tuple.
+ * @tparam Args C++ types of the argv array
+ */
 template <typename... Args>
 std::tuple<Args...> unwrap_args(JSContext * ctx, JSValueConst * argv)
 {
     return unwrap_args_impl<std::tuple<Args...>>(ctx, argv, std::make_index_sequence<sizeof...(Args)>());
 }
 
+/** Helper function to call f with an array of JSValues.
+ * @tparam R return type of f
+ * @tparam Args argument types of f
+ * @tparam Callable type of f (inferred)
+ * @param ctx JSContext
+ * @param f callable object
+ * @param argv array of JSValue's
+ * @return converted return value of f or JS_NULL if f returns void
+ */
 template <typename R, typename... Args, typename Callable>
 JSValue wrap_call(JSContext * ctx, Callable&& f, JSValueConst * argv) noexcept
 {
@@ -242,7 +285,7 @@ JSValue wrap_call(JSContext * ctx, Callable&& f, JSValueConst * argv) noexcept
         if constexpr(std::is_same_v<R, void>)
         {
             std::apply(std::forward<Callable>(f), unwrap_args<Args...>(ctx, argv));
-            return JS_UNDEFINED;
+            return JS_NULL;
         } else
         {
             return js_traits<std::decay_t<R>>::wrap(ctx,
@@ -256,6 +299,9 @@ JSValue wrap_call(JSContext * ctx, Callable&& f, JSValueConst * argv) noexcept
     }
 }
 
+/** Same as wrap_call, but pass this_value as first argument.
+ * @tparam FirstArg type of this_value
+ */
 template <typename R, typename FirstArg, typename... Args, typename Callable>
 JSValue wrap_this_call(JSContext * ctx, Callable&& f, JSValueConst this_value, JSValueConst * argv) noexcept
 {
@@ -265,7 +311,7 @@ JSValue wrap_this_call(JSContext * ctx, Callable&& f, JSValueConst this_value, J
         {
             std::apply(std::forward<Callable>(f), std::tuple_cat(unwrap_args<FirstArg>(ctx, &this_value),
                                                                  unwrap_args<Args...>(ctx, argv)));
-            return JS_UNDEFINED;
+            return JS_NULL;
         } else
         {
             return js_traits<std::decay_t<R>>::wrap(ctx,
@@ -287,6 +333,10 @@ void wrap_args_impl(JSContext * ctx, JSValue * argv, Tuple tuple, std::index_seq
     ((argv[I] = js_traits<std::decay_t<std::tuple_element_t<I, Tuple>>>::wrap(ctx, std::get<I>(tuple))), ...);
 }
 
+/** Converts C++ args to JSValue array.
+ * @tparam Args argument types
+ * @param argv array of size at least sizeof...(Args)
+ */
 template <typename... Args>
 void wrap_args(JSContext * ctx, JSValue * argv, Args&& ... args)
 {
@@ -295,13 +345,19 @@ void wrap_args(JSContext * ctx, JSValue * argv, Args&& ... args)
 }
 } // namespace detail
 
+/** A wrapper type for free and class member functions.
+ * Pointer to function F is a template argument.
+ * @tparam F either a pointer to free function or a pointer to class member function
+ * @tparam PassThis if true and F is a pointer to free function, passes Javascript "this" value as first argument:
+ */
 template <auto F, bool PassThis = false /* pass this as the first argument */>
 struct fwrapper
 {
+    /// "name" property of the JS function object (not defined if nullptr)
     const char * name = nullptr;
 };
 
-// free function
+/** Conversion to JSValue for free function in fwrapper. */
 template <typename R, typename... Args, R (* F)(Args...), bool PassThis>
 struct js_traits<fwrapper<F, PassThis>>
 {
@@ -318,8 +374,7 @@ struct js_traits<fwrapper<F, PassThis>>
     }
 };
 
-// class member function
-
+/** Conversion to JSValue for class member function in fwrapper. */
 template <typename R, class T, typename... Args, R (T::*F)(Args...)>
 struct js_traits<fwrapper<F>>
 {
@@ -333,6 +388,7 @@ struct js_traits<fwrapper<F>>
     }
 };
 
+/** Conversion to JSValue for const class member function in fwrapper. */
 template <typename R, class T, typename... Args, R (T::*F)(Args...) const>
 struct js_traits<fwrapper<F>>
 {
@@ -346,15 +402,19 @@ struct js_traits<fwrapper<F>>
     }
 };
 
-// class constructor
-
+/** A wrapper type for constructor of type T with arguments Args.
+ * Compilation fails if no such constructor is defined.
+ * @tparam Args constructor arguments
+ */
 template <class T, typename... Args>
 struct ctor_wrapper
 {
     static_assert(std::is_constructible<T, Args...>::value, "no such constructor!");
+    /// "name" property of JS constructor object
     const char * name = nullptr;
 };
 
+/** Conversion to JSValue for ctor_wrapper. */
 template <class T, typename... Args>
 struct js_traits<ctor_wrapper<T, Args...>>
 {
@@ -364,18 +424,27 @@ struct js_traits<ctor_wrapper<T, Args...>>
                                         JSValueConst * argv) noexcept -> JSValue {
             return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
         }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
-
     }
 };
 
 
-// SP<T> class
-
+/** Conversions for std::shared_ptr<T>.
+ * T should be registered to a context before conversions.
+ * @tparam T class type
+ */
 template <class T>
 struct js_traits<std::shared_ptr<T>>
 {
+    /// Registered class id in QuickJS.
     inline static JSClassID QJSClassId;
 
+    /** Register class in QuickJS context.
+     *
+     * @param ctx context
+     * @param name class name
+     * @param proto class prototype
+     * @throws exception
+     */
     static void register_class(JSContext * ctx, const char * name, JSValue proto)
     {
         JSClassDef def{
@@ -397,6 +466,10 @@ struct js_traits<std::shared_ptr<T>>
         JS_SetClassProto(ctx, QJSClassId, proto);
     }
 
+    /** Create a JSValue from std::shared_ptr<T>.
+     * Creates an object with class if #QJSClassId and sets its opaque pointer to a new copy of #ptr.
+     * @throws exception if class T is not registered or error on object creation
+     */
     static JSValue wrap(JSContext * ctx, std::shared_ptr<T> ptr)
     {
         if(QJSClassId == 0) // not registered
@@ -416,6 +489,7 @@ struct js_traits<std::shared_ptr<T>>
         return jsobj;
     }
 
+    /// @throws exception if #v doesn't have the correct class id
     static const std::shared_ptr<T>& unwrap(JSContext * ctx, JSValueConst v)
     {
         auto ptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, QJSClassId));
@@ -459,7 +533,10 @@ struct js_traits<T *>
 };
 
 namespace detail {
-struct function // std::function replacement
+/** A faster std::function-like object with type erasure.
+ * Used to convert any callable objects (including lambdas) to JSValue.
+ */
+struct function
 {
     JSValue
     (* invoker)(function * self, JSContext * ctx, JSValueConst this_value, int argc, JSValueConst * argv) = nullptr;
@@ -614,6 +691,13 @@ struct get_set<M>
 
 } // namespace detail
 
+/** JSValue with RAAI semantics.
+ * A wrapper over (JSValue v, JSContext * ctx).
+ * Calls JS_FreeValue(ctx, v) on destruction. Can be copied and moved.
+ * A JSValue can be released by either JSValue x = std::move(value); or JSValue x = value.release(), then the Value becomes invalid and FreeValue won't be called
+ * Can be converted to C++ type, for example: auto string = value.as<std::string>(); qjs::exception would be thrown on error
+ * Properties can be accessed (read/write): value["property1"] = 1; value[2] = "2";
+ */
 class Value
 {
 public:
@@ -648,7 +732,13 @@ public:
     template <typename T>
     T cast() const
     {
-        return js_traits<T>::unwrap(ctx, v);
+        return js_traits<std::decay_t<T>>::unwrap(ctx, v);
+    }
+
+    template <typename T>
+    T as() const
+    {
+        return cast<T>();
     }
 
     JSValue release() // dont call freevalue
@@ -703,7 +793,7 @@ public:
             ret = JS_DefinePropertyGetSet(ctx, v, prop,
                                           js_traits<fgetter>::wrap(ctx, fgetter{name}),
                                           JS_UNDEFINED,
-                                          0 // ?
+                                          JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE
             );
         } else
         {
@@ -711,7 +801,7 @@ public:
             ret = JS_DefinePropertyGetSet(ctx, v, prop,
                                           js_traits<fgetter>::wrap(ctx, fgetter{name}),
                                           js_traits<fsetter>::wrap(ctx, fsetter{name}),
-                                          JS_PROP_WRITABLE // ?
+                                          JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_ENUMERABLE
             );
         }
         JS_FreeAtom(ctx, prop);
@@ -723,7 +813,9 @@ public:
 
 };
 
-
+/** Thin wrapper over JSRuntime * rt
+ * Calls JS_FreeRuntime on destruction. noncopyable.
+ */
 class Runtime
 {
 public:
@@ -744,13 +836,17 @@ public:
     }
 };
 
-
+/** Wrapper over JSContext * ctx
+ * Calls JS_SetContextOpaque(ctx, this); on construction and JS_FreeContext on destruction
+ */
 class Context
 {
 public:
     JSContext * ctx;
 
-    //private:
+    /** Module wrapper
+     * Workaround for lack of opaque pointer for module load function by keeping a list of modules in qjs::Context.
+     */
     class Module
     {
         friend class Context;
@@ -765,12 +861,10 @@ public:
         Module(JSContext * ctx, const char * name) : ctx(ctx), name(name), exports(JS_GetRuntime(ctx))
         {
             m = JS_NewCModule(ctx, name, [](JSContext * ctx, JSModuleDef * m) noexcept {
-                auto context = reinterpret_cast<Context *>(JS_GetContextOpaque(ctx));
-                if(!context)
-                    return -1;
-                auto it = std::find_if(context->modules.begin(), context->modules.end(),
+                auto& context = Context::get(ctx);
+                auto it = std::find_if(context.modules.begin(), context.modules.end(),
                                        [m](const Module& module) { return module.m == m; });
-                if(it == context->modules.end())
+                if(it == context.modules.end())
                     return -1;
                 for(const auto& e : it->exports)
                 {
@@ -811,12 +905,21 @@ public:
 
 
         // function wrappers
+
+        /** Add free function F.
+         * Example:
+         * module.function<static_cast<double (*)(double)>(&::sin)>("sin");
+         */
         template <auto F>
         Module& function(const char * name)
         {
             return add(name, qjs::fwrapper<F>{name});
         }
 
+        /** Add function object f.
+         * Slower than template version.
+         * Example: module.function("sin", [](double x) { return ::sin(x); });
+         */
         template <typename F>
         Module& function(const char * name, F&& f)
         {
@@ -825,6 +928,10 @@ public:
 
         // class register wrapper
     private:
+        /** Helper class to register class members and constructors.
+         * See \fun, \constructor.
+         * Actual registration occurs at object destruction.
+         */
         template <class T>
         class class_registrar
         {
@@ -843,6 +950,8 @@ public:
 
             class_registrar(const class_registrar&) = delete;
 
+            /** Add functional object f
+             */
             template <typename F>
             class_registrar& fun(const char * name, F&& f)
             {
@@ -850,6 +959,12 @@ public:
                 return *this;
             }
 
+            /** Add class member function or class member variable F
+             * Example:
+             * struct T { int var; int func(); }
+             * auto& module = context.addModule("module");
+             * module.class_<T>("T").fun<&T::var>("var").fun<&T::func>("func");
+             */
             template <auto F>
             class_registrar& fun(const char * name)
             {
@@ -857,6 +972,10 @@ public:
                 return *this;
             }
 
+            /** Add class constructor
+             * @tparam Args contructor arguments
+             * @param name constructor name (if not specified class name will be used)
+             */
             template <typename... Args>
             class_registrar& constructor(const char * name = nullptr)
             {
@@ -887,10 +1006,13 @@ public:
         };
 
     public:
+        /** Add class to module.
+         * See \class_registrar.
+         */
         template <class T>
         class_registrar<T> class_(const char * name)
         {
-            return class_registrar<T>{name, *this, *reinterpret_cast<qjs::Context *>(JS_GetContextOpaque(ctx))};
+            return class_registrar<T>{name, *this, qjs::Context::get(ctx)};
         }
 
     };
@@ -928,6 +1050,7 @@ public:
         JS_FreeContext(ctx);
     }
 
+    /** Create module and return a reference to it */
     Module& addModule(const char * name)
     {
         modules.emplace_back(ctx, name);
@@ -944,6 +1067,12 @@ public:
         return Value{ctx, JS_NewObject(ctx)};
     }
 
+    /** Register class \T for conversions to/from std::shared_ptr<T> to work.
+     * Wherever possible module.class_<T>("T")... should be used instead.
+     * @tparam T class type
+     * @param name class name in JS engine
+     * @param proto JS class prototype or JS_UNDEFINED
+     */
     template <class T>
     void registerClass(const char * name, JSValue proto)
     {
@@ -968,9 +1097,19 @@ public:
         return eval({reinterpret_cast<char *>(buf.get()), buf_len}, filename, eval_flags);
     }
 
+    /** Get qjs::Context from JSContext opaque pointer */
+    static Context& get(JSContext * ctx)
+    {
+        void * ptr = JS_GetContextOpaque(ctx);
+        assert(ptr);
+        return *reinterpret_cast<Context *>(ptr);
+    }
 };
 
-
+/** Convert to/from std::function
+ * @tparam R return type
+ * @tparam Args argument types
+ */
 template <typename R, typename... Args>
 struct js_traits<std::function<R(Args...)>>
 {
@@ -986,6 +1125,9 @@ struct js_traits<std::function<R(Args...)>>
         };
     }
 
+    /** Convert from function object \functor to JSValue.
+     * Uses detail::function for type-erasure.
+     */
     template <typename Functor>
     static JSValue wrap(JSContext * ctx, Functor&& functor)
     {
@@ -1004,7 +1146,7 @@ struct js_traits<std::function<R(Args...)>>
     }
 };
 
-// std::vector <-> Array
+/** Convert from std::vector<T> to Array and vice-versa. If Array holds objects that are non-convertible to \T throws qjs::exception */
 template <class T>
 struct js_traits<std::vector<T>>
 {
