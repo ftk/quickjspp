@@ -16,6 +16,9 @@ jobs:
           - os: windows-latest
             compiler: second
             cmake_opts: -G "MSYS Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+        exclude: # msvs
+          - os: windows-latest
+            compiler: native
     steps:
     - uses: actions/checkout@v1
     - name: configure
