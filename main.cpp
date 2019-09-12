@@ -110,9 +110,9 @@ int main(int argc, char ** argv)
     const char * str = "import * as std from 'std';\n"
                        "import * as os from 'os';\n"
                        "import * as test from 'test';\n"
-                       "std.global.std = std;\n"
-                       "std.global.test = test;\n"
-                       "std.global.os = os;\n";
+                       "globalThis.std = std;\n"
+                       "globalThis.test = test;\n"
+                       "globalThis.os = os;\n";
     context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
     const char * filename = argv[1];
 
