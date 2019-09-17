@@ -1082,8 +1082,7 @@ public:
     Value eval(std::string_view buffer, const char * filename = "<eval>", unsigned eval_flags = 0)
     {
         JSValue v = JS_Eval(ctx, buffer.data(), buffer.size(), filename, eval_flags);
-        //if(JS_IsException(v))
-        //throw exception{};
+        if(JS_IsException(v)) js_std_dump_error(ctx);
         return Value{ctx, v};
     }
 
