@@ -734,6 +734,30 @@ public:
         v = rhs.v;
     }
 
+    Value& operator=(Value rhs)
+    {
+        std::swap(ctx, rhs.ctx);
+        std::swap(v, rhs.v);
+        return *this;
+    }
+
+    bool operator==(JSValueConst other) const
+    {
+        return JS_VALUE_GET_TAG(v) == JS_VALUE_GET_TAG(other) && JS_VALUE_GET_PTR(v) == JS_VALUE_GET_PTR(other);
+    }
+
+    bool operator!=(JSValueConst other) const { return !((*this) == other); }
+
+
+    /** Returns true if 2 values are the same (equality for arithmetic types or point to the same object) */
+    bool operator==(const Value& rhs) const
+    {
+        return ctx == rhs.ctx && (*this == rhs.v);
+    }
+
+    bool operator!=(const Value& rhs) const { return !((*this) == rhs); }
+
+
     ~Value()
     {
         if(ctx) JS_FreeValue(ctx, v);
