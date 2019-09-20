@@ -1,12 +1,5 @@
 #include "quickjspp.hpp"
-
-
 #include <iostream>
-
-
-#include <cstdlib>
-#include <cstring>
-#include <ctime>
 
 
 #define TYPES bool, int32_t, double, std::shared_ptr<test>, const std::shared_ptr<test>&, std::string, const std::string&
@@ -59,7 +52,7 @@ void f(TYPES) {}
 void qjs_glue(qjs::Context::Module& m) {
     m.function<&::f>("f"); // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
     m.class_<::base_test>("base_test")
-                    // implicit: .constructor<::base_test const &>()
+            // implicit: .constructor<::base_test const &>()
             .constructor<>()
             .fun<&::base_test::base_method>("base_method") // (double)
             .fun<&::base_test::base_field>("base_field") // double
@@ -83,7 +76,8 @@ void qjs_glue(qjs::Context::Module& m) {
             .fun<&::test::s>("s") // ::std::string
             ;
 } // qjs_glue
-int main(int argc, char ** argv)
+
+int main()
 {
     JSRuntime * rt;
     JSContext * ctx;
@@ -95,33 +89,37 @@ int main(int argc, char ** argv)
     Context context(runtime);
     ctx = context.ctx;
 
-    qjs_glue(context.addModule("test"));
-
-
-    /* loader for ES6 modules */
-    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
-    js_std_add_helpers(ctx, argc, argv);
-
-    /* system modules */
-    js_init_module_std(ctx, "std");
-    js_init_module_os(ctx, "os");
-
-    /* make 'std' and 'os' visible to non module code */
-    const char * str = "import * as std from 'std';\n"
-                       "import * as os from 'os';\n"
-                       "import * as test from 'test';\n"
-                       "globalThis.std = std;\n"
-                       "globalThis.test = test;\n"
-                       "globalThis.os = os;\n";
-    context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
-
     try
     {
+        qjs_glue(context.addModule("test"));
+
+
+        /* loader for ES6 modules */
+        JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
+        js_std_add_helpers(ctx, 0, nullptr);
+
+        /* system modules */
+        js_init_module_std(ctx, "std");
+        js_init_module_os(ctx, "os");
+
+        /* make 'std' and 'os' visible to non module code */
+        const char * str = "import * as std from 'std';\n"
+                           "import * as os from 'os';\n"
+                           "import * as test from 'test';\n"
+                           "globalThis.std = std;\n"
+                           "globalThis.test = test;\n"
+                           "globalThis.os = os;\n";
+        context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
+
+
+        context.global().add("assert", [](bool t) { if(!t) std::exit(2); });
+
+
         auto xxx = context.eval("\"use strict\";"
                                 "var b = new test.base_test();"
                                 "b.base_field = [[5],[1,2,3,4],[6]];"
-                                "console.log(b.base_field[1][3] === 4);"
-                                "console.log(b.base_method() === 5);"
+                                "assert(b.base_field[1][3] === 4);"
+                                "assert(b.base_method() === 5);"
 
                                 "var t = new test.TestSimple(12);"
                                 "var q = new test.Test(13, t.vb, t.vi, t.vd, t, t, t.vs, t.vs);"
@@ -130,12 +128,12 @@ int main(int argc, char ** argv)
                                 "q.s = \"STRING\";"
                                 "q.spt = t;"
                                 //"q.base_field = 105.5;"
-                                "console.log(q.b === q.fb(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
-                                "console.log(q.d === q.fd(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
-                                "console.log(q.s === q.fs(t.vb, t.vi, t.vd, t, t, \"test\", t.vs));"
-                                //"console.log(105.5 === q.base_method(5.1));"
-                                //"console.log(5.1 === q.base_field);"
-                                "console.log(q.spt === q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // false
+                                "assert(q.b === q.fb(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
+                                "assert(q.d === q.fd(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
+                                "assert(q.s === q.fs(t.vb, t.vi, t.vd, t, t, \"test\", t.vs));"
+                                //"assert(105.5 === q.base_method(5.1));"
+                                //"assert(5.1 === q.base_field);"
+                                "assert(q.spt !== q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // different objects
                                 "q.fi(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
         assert((int)xxx == 18);
         auto yyy = context.eval("q.fi.bind(t)(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
@@ -146,24 +144,17 @@ int main(int argc, char ** argv)
                     context.eval("t").as<std::shared_ptr<test>>(), "test string", std::string{"test"});
         assert(zzz == 19);
 
-
-        if(argv[1])
-            context.evalFile(argv[1]);
     }
     catch(exception)
     {
-        //js_std_dump_error(ctx);
         auto exc = context.getException();
         std::cerr << (exc.isError() ? "Error: " : "Throw: ") << (std::string)exc << std::endl;
         if((bool)exc["stack"])
             std::cerr << (std::string)exc["stack"] << std::endl;
+
+        js_std_free_handlers(rt);
+        return 1;
     }
-
-
-
-    JSMemoryUsage mem;
-    JS_ComputeMemoryUsage(rt, &mem);
-    JS_DumpMemoryUsage(stderr, &mem, rt);
 
     js_std_loop(ctx);
 

@@ -16,7 +16,10 @@ endif()
 add_library(quickjs ${quickjs_src})
 target_compile_definitions(quickjs PRIVATE ${quickjs_def} )
 
+add_library(quickjs-dumpleaks ${quickjs_src})
+target_compile_definitions(quickjs-dumpleaks PRIVATE ${quickjs_def} DUMP_LEAKS=1)
 
 if(UNIX)
   target_link_libraries(quickjs ${CMAKE_DL_LIBS} m )
+  target_link_libraries(quickjs-dumpleaks ${CMAKE_DL_LIBS} m )
 endif()
