@@ -114,7 +114,6 @@ int main(int argc, char ** argv)
                        "globalThis.test = test;\n"
                        "globalThis.os = os;\n";
     context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
-    const char * filename = argv[1];
 
     try
     {
@@ -138,22 +137,29 @@ int main(int argc, char ** argv)
                                 //"console.log(5.1 === q.base_field);"
                                 "console.log(q.spt === q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // false
                                 "q.fi(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
-        assert(xxx.cast<int>() == 18);
+        assert((int)xxx == 18);
         auto yyy = context.eval("q.fi.bind(t)(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
-        assert(yyy.cast<int>() == 13);
+        assert((int)yyy == 13);
 
-        auto f = context.eval("q.fi.bind(q)").cast<std::function<int32_t(TYPES)>>();
-        int zzz = f(false, 1, 0., context.eval("q").cast<std::shared_ptr<test>>(),
-                    context.eval("t").cast<std::shared_ptr<test>>(), "test string", std::string{"test"});
+        auto f = context.eval("q.fi.bind(q)").as<std::function<int32_t(TYPES)>>();
+        int zzz = f(false, 1, 0., context.eval("q").as<std::shared_ptr<test>>(),
+                    context.eval("t").as<std::shared_ptr<test>>(), "test string", std::string{"test"});
         assert(zzz == 19);
+
+
+        if(argv[1])
+            context.evalFile(argv[1]);
     }
     catch(exception)
     {
-        js_std_dump_error(ctx);
+        //js_std_dump_error(ctx);
+        auto exc = context.getException();
+        std::cerr << (exc.isError() ? "Error: " : "Throw: ") << (std::string)exc << std::endl;
+        if((bool)exc["stack"])
+            std::cerr << (std::string)exc["stack"] << std::endl;
     }
 
-    if(filename)
-    context.evalFile(filename, JS_EVAL_TYPE_MODULE);
+
 
     JSMemoryUsage mem;
     JS_ComputeMemoryUsage(rt, &mem);

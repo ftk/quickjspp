@@ -644,6 +644,8 @@ struct js_property_traits<uint32_t>
     }
 };
 
+class Value;
+
 namespace detail {
 template <typename Key>
 struct property_proxy
@@ -652,11 +654,19 @@ struct property_proxy
     JSValue this_obj;
     Key key;
 
-    template <typename Value>
-    operator Value() const
+    /** Conversion helper function */
+    template <typename T>
+    T as() const
     {
-        return unwrap_free<Value>(ctx, js_property_traits<Key>::get_property(ctx, this_obj, key));
+        return unwrap_free<T>(ctx, js_property_traits<Key>::get_property(ctx, this_obj, key));
     }
+
+    /** Explicit conversion operator (to any type) */
+    template <typename T>
+    explicit operator T() const { return as<T>(); }
+
+    /** Implicit converion to qjs::Value */
+    operator Value() const; // defined later due to Value being incomplete type
 
     template <typename Value>
     property_proxy& operator =(Value value)
@@ -705,10 +715,11 @@ public:
     JSContext * ctx = nullptr;
 
 public:
+    /** Use context.newValue(val) instead */
     template <typename T>
-    Value(JSContext * ctx, T val) : ctx(ctx)
+    Value(JSContext * ctx, T&& val) : ctx(ctx)
     {
-        v = js_traits<T>::wrap(ctx, val);
+        v = js_traits<std::decay_t<T>>::wrap(ctx, std::forward<T>(val));
     }
 
     Value(const Value& rhs)
@@ -728,18 +739,15 @@ public:
         if(ctx) JS_FreeValue(ctx, v);
     }
 
+    bool isError() const { return JS_IsError(ctx, v); }
 
+    /** Conversion helper function. Both value.as<T>() and static_cast<T>(value) are supported */
     template <typename T>
-    T cast() const
-    {
-        return js_traits<std::decay_t<T>>::unwrap(ctx, v);
-    }
+    T as() const { return js_traits<std::decay_t<T>>::unwrap(ctx, v); }
 
+    /** Explicit conversion to any type */
     template <typename T>
-    T as() const
-    {
-        return cast<T>();
-    }
+    explicit operator T() const { return as<T>(); }
 
     JSValue release() // dont call freevalue
     {
@@ -747,13 +755,11 @@ public:
         return v;
     }
 
-    operator JSValue()&&
-    {
-        return release();
-    }
+    /** Implicit conversion to JSValue (rvalue only). Example: JSValue v = std::move(value); */
+    operator JSValue() && { return release(); }
 
 
-    // access properties
+    /** Access JS properties. Returns proxy type which is implicitly convertible to qjs::Value */
     template <typename Key>
     detail::property_proxy<Key> operator [](Key key)
     {
@@ -825,9 +831,10 @@ public:
     {
         rt = JS_NewRuntime();
         if(!rt)
-            throw exception{};
+            throw std::runtime_error{"qjs: Cannot create runtime"};
     }
 
+    // noncopyable
     Runtime(const Runtime&) = delete;
 
     ~Runtime()
@@ -1033,7 +1040,7 @@ public:
     {
         ctx = JS_NewContext(rt);
         if(!ctx)
-            throw exception{};
+            throw std::runtime_error{"qjs: Cannot create context"};
         init();
     }
 
@@ -1042,6 +1049,7 @@ public:
         init();
     }
 
+    // noncopyable
     Context(const Context&) = delete;
 
     ~Context()
@@ -1057,15 +1065,18 @@ public:
         return modules.back();
     }
 
-    Value global()
-    {
-        return Value{ctx, JS_GetGlobalObject(ctx)};
-    }
+    /** returns globalThis */
+    Value global() { return Value{ctx, JS_GetGlobalObject(ctx)}; }
 
-    Value newObject()
-    {
-        return Value{ctx, JS_NewObject(ctx)};
-    }
+    /** returns new Object() */
+    Value newObject() { return Value{ctx, JS_NewObject(ctx)}; }
+
+    /** returns JS value converted from c++ object \val */
+    template <typename T>
+    Value newValue(T&& val) { return Value{ctx, std::forward<T>(val)}; }
+
+    /** returns current exception associated with context, and resets it. Should be called when qjs::exception is caught */
+    Value getException() { return Value{ctx, JS_GetException(ctx)}; }
 
     /** Register class \T for conversions to/from std::shared_ptr<T> to work.
      * Wherever possible module.class_<T>("T")... should be used instead.
@@ -1082,8 +1093,8 @@ public:
     Value eval(std::string_view buffer, const char * filename = "<eval>", unsigned eval_flags = 0)
     {
         JSValue v = JS_Eval(ctx, buffer.data(), buffer.size(), filename, eval_flags);
-        //if(JS_IsException(v))
-        //throw exception{};
+        if(JS_IsException(v))
+            throw exception{};
         return Value{ctx, v};
     }
 
@@ -1103,6 +1114,23 @@ public:
         void * ptr = JS_GetContextOpaque(ctx);
         assert(ptr);
         return *reinterpret_cast<Context *>(ptr);
+    }
+};
+
+/** Conversion traits for Value.
+ */
+template <>
+struct js_traits<Value>
+{
+    static Value unwrap(JSContext * ctx, JSValueConst v) noexcept
+    {
+        return Value{ctx, JS_DupValue(ctx, v)};
+    }
+
+    static JSValue wrap(JSContext * ctx, Value v) noexcept
+    {
+        assert(ctx == v.ctx);
+        return v.release();
     }
 };
 
@@ -1168,13 +1196,20 @@ struct js_traits<std::vector<T>>
             throw exception{};
         Value jsarray{ctx, JS_DupValue(ctx, jsarr)};
         std::vector<T> arr;
-        int32_t len = jsarray["length"];
+        auto len = static_cast<int32_t>(jsarray["length"]);
         arr.reserve((uint32_t) len);
         for(uint32_t i = 0; i < (uint32_t) len; i++)
-            arr.push_back(jsarray[i]);
+            arr.push_back(static_cast<T>(jsarray[i]));
         return arr;
     }
 };
 
-
+namespace detail {
+template <typename Key>
+property_proxy<Key>::operator Value() const
+{
+    return as<Value>();
 }
+}
+
+} // namespace qjs
