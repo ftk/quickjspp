@@ -274,9 +274,9 @@ Tuple unwrap_args_impl(JSContext * ctx, JSValueConst * argv, std::index_sequence
  * @tparam Args C++ types of the argv array
  */
 template <typename... Args>
-std::tuple<Args...> unwrap_args(JSContext * ctx, JSValueConst * argv)
+std::tuple<std::decay_t<Args>...> unwrap_args(JSContext * ctx, JSValueConst * argv)
 {
-    return unwrap_args_impl<std::tuple<Args...>>(ctx, argv, std::make_index_sequence<sizeof...(Args)>());
+    return unwrap_args_impl<std::tuple<std::decay_t<Args>...>>(ctx, argv, std::make_index_sequence<sizeof...(Args)>());
 }
 
 /** Helper function to call f with an array of JSValues.
@@ -731,6 +731,8 @@ public:
     Value(JSContext * ctx, T&& val) : ctx(ctx)
     {
         v = js_traits<std::decay_t<T>>::wrap(ctx, std::forward<T>(val));
+        if(JS_IsException(v))
+            throw exception{};
     }
 
     Value(const Value& rhs)
