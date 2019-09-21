@@ -198,7 +198,7 @@ struct js_traits<std::string_view>
 {
     static detail::js_string unwrap(JSContext * ctx, JSValueConst v)
     {
-        std::size_t plen;
+        size_t plen;
         const char * ptr = JS_ToCStringLen(ctx, &plen, v);
         if(!ptr)
             throw exception{};
@@ -207,7 +207,7 @@ struct js_traits<std::string_view>
 
     static JSValue wrap(JSContext * ctx, std::string_view str) noexcept
     {
-        return JS_NewStringLen(ctx, str.data(), (int) str.size());
+        return JS_NewStringLen(ctx, str.data(), str.size());
     }
 };
 
@@ -223,9 +223,20 @@ struct js_traits<std::string>
 
     static JSValue wrap(JSContext * ctx, const std::string& str) noexcept
     {
-        return JS_NewStringLen(ctx, str.data(), (int) str.size());
+        return JS_NewStringLen(ctx, str.data(), str.size());
     }
 };
+
+/** Conversion from const char * */
+template <>
+struct js_traits<const char *>
+{
+    static JSValue wrap(JSContext * ctx, const char * str) noexcept
+    {
+        return JS_NewString(ctx, str);
+    }
+};
+
 
 namespace detail {
 
