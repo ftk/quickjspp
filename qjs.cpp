@@ -18,7 +18,7 @@ int main(int argc, char ** argv)
 
     /* loader for ES6 modules */
     JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
-    js_std_add_helpers(ctx, argc, argv);
+    js_std_add_helpers(ctx, argc - 1, argv + 1);
 
     /* system modules */
     js_init_module_std(ctx, "std");
@@ -34,7 +34,7 @@ int main(int argc, char ** argv)
     try
     {
         if(argv[1])
-            context.evalFile(argv[1]);
+            context.evalFile(argv[1], JS_EVAL_TYPE_MODULE);
     }
     catch(exception)
     {
