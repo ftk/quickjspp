@@ -447,33 +447,39 @@ template <class T>
 struct js_traits<std::shared_ptr<T>>
 {
     /// Registered class id in QuickJS.
-    inline static JSClassID QJSClassId;
+    inline static JSClassID QJSClassId = 0;
 
     /** Register class in QuickJS context.
      *
      * @param ctx context
      * @param name class name
-     * @param proto class prototype
+     * @param proto class prototype or JS_NULL
      * @throws exception
      */
-    static void register_class(JSContext * ctx, const char * name, JSValue proto)
+    static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL)
     {
-        JSClassDef def{
-                name,
-                // destructor
-                [](JSRuntime * rt, JSValue obj) noexcept {
-                    auto pptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque(obj, QJSClassId));
-                    assert(pptr);
-                    //delete pptr;
-                    auto alloc = allocator<std::shared_ptr<T>>{rt};
-                    using atraits = std::allocator_traits<decltype(alloc)>;
-                    atraits::destroy(alloc, pptr);
-                    atraits::deallocate(alloc, pptr, 1);
-                }
-        };
-        int e = JS_NewClass(JS_GetRuntime(ctx), JS_NewClassID(&QJSClassId), &def);
-        if(e < 0)
-            throw exception{};
+        if(QJSClassId == 0)
+        {
+            JSClassDef def{
+                    name,
+                    // destructor
+                    [](JSRuntime * rt, JSValue obj) noexcept {
+                        auto pptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque(obj, QJSClassId));
+                        assert(pptr);
+                        //delete pptr;
+                        auto alloc = allocator<std::shared_ptr<T>>{rt};
+                        using atraits = std::allocator_traits<decltype(alloc)>;
+                        atraits::destroy(alloc, pptr);
+                        atraits::deallocate(alloc, pptr, 1);
+                    }
+            };
+            int e = JS_NewClass(JS_GetRuntime(ctx), JS_NewClassID(&QJSClassId), &def);
+            if(e < 0)
+            {
+                JS_ThrowInternalError(ctx, "Cant register class %s", name);
+                throw exception{};
+            }
+        }
         JS_SetClassProto(ctx, QJSClassId, proto);
     }
 
@@ -583,10 +589,13 @@ static_assert(std::is_trivially_destructible_v<function>);
 template <>
 struct js_traits<detail::function>
 {
-    inline static JSClassID QJSClassId;
+    inline static JSClassID QJSClassId = 0;
 
+    // TODO: replace ctx with rt
     static void register_class(JSContext * ctx, const char * name)
     {
+        if(QJSClassId)
+            return;
         JSClassDef def{
                 name,
                 // destructor
@@ -609,18 +618,19 @@ struct js_traits<detail::function>
         };
         int e = JS_NewClass(JS_GetRuntime(ctx), JS_NewClassID(&QJSClassId), &def);
         if(e < 0)
-            throw exception{};
+            throw std::runtime_error{"Cannot register C++ function class"};
     }
 };
 
 
-//          properties
-
+/** Traits for accessing object properties.
+ * @tparam Key property key type (uint32 and strings are supported)
+ */
 template <typename Key>
 struct js_property_traits
 {
-    // static void set_property(JSContext * ctx, JSValue this_obj, R key, JSValue value)
-    // static JSValue get_property(JSContext * ctx, JSValue this_obj, R key)
+    static void set_property(JSContext * ctx, JSValue this_obj, Key key, JSValue value);
+    static JSValue get_property(JSContext * ctx, JSValue this_obj, Key key);
 };
 
 template <>
@@ -1122,7 +1132,7 @@ public:
      * @param proto JS class prototype or JS_UNDEFINED
      */
     template <class T>
-    void registerClass(const char * name, JSValue proto)
+    void registerClass(const char * name, JSValue proto = JS_NULL)
     {
         js_traits<std::shared_ptr<T>>::register_class(ctx, name, proto);
     }
