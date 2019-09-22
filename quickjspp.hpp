@@ -136,9 +136,9 @@ template <>
 struct js_traits<void>
 {
     /// @throws exception if jsvalue is neither undefined nor null
-    static void unwrap(JSContext * ctx, JSValueConst undefined)
+    static void unwrap(JSContext * ctx, JSValueConst value)
     {
-        if(!JS_IsUndefined(undefined) && !JS_IsNull(undefined))
+        if(JS_IsException(value))
             throw exception{};
     }
 };
@@ -1140,8 +1140,6 @@ public:
     Value eval(std::string_view buffer, const char * filename = "<eval>", unsigned eval_flags = 0)
     {
         JSValue v = JS_Eval(ctx, buffer.data(), buffer.size(), filename, eval_flags);
-        if(JS_IsException(v))
-            throw exception{};
         return Value{ctx, v};
     }
 
