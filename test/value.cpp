@@ -39,9 +39,9 @@ int main()
         //
 
         val1 = context.newObject();
-        val1["a"] = 1;
+        val1["a"] = "1";
         val2 = context.newObject();
-        val2["a"] = 1;
+        val2["a"] = "1";
 
         assert(val1 != val2);
 
@@ -52,6 +52,8 @@ int main()
         assert((bool) context.eval("val1 != val2"));
         assert((bool)context.eval("JSON.stringify(val1) === JSON.stringify(val2)"));
 
+        qjs::Value one = val1["a"];
+        assert((int)one == 1);
     }
     catch(qjs::exception)
     {
