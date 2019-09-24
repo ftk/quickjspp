@@ -1,0 +1,23 @@
+name: Doxygen gh-pages
+on:
+  push:
+    branches:
+    - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Doxygen install
+      run: sudo apt-get install -y doxygen graphviz 
+    - name: Doxygen
+      run: doxygen
+    - name: Deploy to gh-pages
+      uses: peaceiris/actions-gh-pages@v2.3.2
+      env:
+        PERSONAL_TOKEN: ${{ secrets.TOKEN }}
+        PUBLISH_BRANCH: gh-pages
+        PUBLISH_DIR: ./html
+      with:
+        emptyCommits: false

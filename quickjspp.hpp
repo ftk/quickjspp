@@ -983,7 +983,7 @@ public:
         // class register wrapper
     private:
         /** Helper class to register class members and constructors.
-         * See \fun, \constructor.
+         * See fun, constructor.
          * Actual registration occurs at object destruction.
          */
         template <class T>
@@ -1061,7 +1061,7 @@ public:
 
     public:
         /** Add class to module.
-         * See \class_registrar.
+         * See \ref class_registrar.
          */
         template <class T>
         class_registrar<T> class_(const char * name)
@@ -1118,14 +1118,14 @@ public:
     /** returns new Object() */
     Value newObject() { return Value{ctx, JS_NewObject(ctx)}; }
 
-    /** returns JS value converted from c++ object \val */
+    /** returns JS value converted from c++ object val */
     template <typename T>
     Value newValue(T&& val) { return Value{ctx, std::forward<T>(val)}; }
 
     /** returns current exception associated with context, and resets it. Should be called when qjs::exception is caught */
     Value getException() { return Value{ctx, JS_GetException(ctx)}; }
 
-    /** Register class \T for conversions to/from std::shared_ptr<T> to work.
+    /** Register class T for conversions to/from std::shared_ptr<T> to work.
      * Wherever possible module.class_<T>("T")... should be used instead.
      * @tparam T class type
      * @param name class name in JS engine
@@ -1198,7 +1198,7 @@ struct js_traits<std::function<R(Args...)>>
         };
     }
 
-    /** Convert from function object \functor to JSValue.
+    /** Convert from function object functor to JSValue.
      * Uses detail::function for type-erasure.
      */
     template <typename Functor>
@@ -1219,7 +1219,7 @@ struct js_traits<std::function<R(Args...)>>
     }
 };
 
-/** Convert from std::vector<T> to Array and vice-versa. If Array holds objects that are non-convertible to \T throws qjs::exception */
+/** Convert from std::vector<T> to Array and vice-versa. If Array holds objects that are non-convertible to T throws qjs::exception */
 template <class T>
 struct js_traits<std::vector<T>>
 {
