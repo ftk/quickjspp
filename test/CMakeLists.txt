@@ -1,10 +1,5 @@
 include_directories(..)
 
-if(UNIX AND CMAKE_COMPILER_IS_GNUCC)
-    add_compile_options(-fsanitize=undefined)
-    add_link_options(-fsanitize=undefined)
-endif()
-
 macro(make_test name)
 add_executable(${name} ${name}.cpp)
 target_link_libraries(${name} quickjs-dumpleaks)
