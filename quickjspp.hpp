@@ -14,6 +14,7 @@ extern "C" {
 #include <algorithm>
 #include <tuple>
 #include <functional>
+#include <stdexcept>
 
 namespace qjs {
 
