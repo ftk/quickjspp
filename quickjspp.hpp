@@ -610,7 +610,7 @@ struct js_traits<detail::function>
                 nullptr, // mark
                 // call
                 [](JSContext * ctx, JSValueConst func_obj, JSValueConst this_val, int argc,
-                   JSValueConst * argv) -> JSValue {
+                   JSValueConst * argv, int flags) -> JSValue {
                     auto ptr = reinterpret_cast<detail::function *>(JS_GetOpaque2(ctx, func_obj, QJSClassId));
                     if(!ptr)
                         return JS_EXCEPTION;
