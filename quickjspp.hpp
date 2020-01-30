@@ -993,6 +993,14 @@ public:
         return *this;
     }
 
+    std::string toJSON(const Value& replacer = Value{nullptr, JS_UNDEFINED}, const Value& space = Value{nullptr, JS_UNDEFINED})
+    {
+        assert(ctx);
+        assert(!replacer.ctx || ctx == replacer.ctx);
+        assert(!space.ctx || ctx == space.ctx);
+        JSValue json = JS_JSONStringify(ctx, v, replacer.v, space.v);
+        return (std::string)Value{ctx, json};
+    }
 
 };
 
@@ -1284,6 +1292,13 @@ public:
         return eval({reinterpret_cast<char *>(buf.get()), buf_len}, filename, eval_flags);
     }
 
+    Value fromJSON(std::string_view buffer, const char * filename = "<fromJSON>")
+    {
+        assert(buffer.data()[buffer.size()] == '\0' && "fromJSON buffer is not null-terminated"); // JS_ParseJSON requirement
+        JSValue v = JS_ParseJSON(ctx, buffer.data(), buffer.size(), filename);
+        return Value{ctx, v};
+    }
+
     /** Get qjs::Context from JSContext opaque pointer */
     static Context& get(JSContext * ctx)
     {
@@ -1369,7 +1384,10 @@ struct js_traits<std::vector<T>>
 
     static std::vector<T> unwrap(JSContext * ctx, JSValueConst jsarr)
     {
-        if(!JS_IsArray(ctx, jsarr))
+        int e = JS_IsArray(ctx, jsarr);
+        if(e == 0)
+            JS_ThrowTypeError(ctx, "js_traits<std::vector<T>>::unwrap expects array");
+        if(e <= 0)
             throw exception{};
         Value jsarray{ctx, JS_DupValue(ctx, jsarr)};
         std::vector<T> arr;
