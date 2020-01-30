@@ -461,6 +461,11 @@ struct js_traits<std::shared_ptr<T>>
     {
         if(QJSClassId == 0)
         {
+            JS_NewClassID(&QJSClassId);
+        }
+        auto rt = JS_GetRuntime(ctx);
+        if(!JS_IsRegisteredClass(rt, QJSClassId))
+        {
             JSClassDef def{
                     name,
                     // destructor
@@ -474,7 +479,7 @@ struct js_traits<std::shared_ptr<T>>
                         atraits::deallocate(alloc, pptr, 1);
                     }
             };
-            int e = JS_NewClass(JS_GetRuntime(ctx), JS_NewClassID(&QJSClassId), &def);
+            int e = JS_NewClass(rt, QJSClassId, &def);
             if(e < 0)
             {
                 JS_ThrowInternalError(ctx, "Cant register class %s", name);
@@ -595,7 +600,12 @@ struct js_traits<detail::function>
     // TODO: replace ctx with rt
     static void register_class(JSContext * ctx, const char * name)
     {
-        if(QJSClassId)
+        if(QJSClassId == 0)
+        {
+            JS_NewClassID(&QJSClassId);
+        }
+        auto rt = JS_GetRuntime(ctx);
+        if(JS_IsRegisteredClass(rt, QJSClassId))
             return;
         JSClassDef def{
                 name,
@@ -617,7 +627,7 @@ struct js_traits<detail::function>
                     return ptr->invoker(ptr, ctx, this_val, argc, argv);
                 }
         };
-        int e = JS_NewClass(JS_GetRuntime(ctx), JS_NewClassID(&QJSClassId), &def);
+        int e = JS_NewClass(rt, QJSClassId, &def);
         if(e < 0)
             throw std::runtime_error{"Cannot register C++ function class"};
     }
