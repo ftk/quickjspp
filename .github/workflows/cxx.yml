@@ -7,23 +7,48 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        compiler: [native, second] # second - clang for linux, mingw gcc for win
+        compiler: [linux-gcc, linux-clang, linux-gcc8, linux-clang8, windows-gcc]
         include:
-          - os: ubuntu-latest
-            compiler: second
+          - compiler: linux-gcc
+            os: ubuntu-latest
+
+          - compiler: linux-clang
+            os: ubuntu-latest
             cmake_opts: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-          - os: windows-latest
-            compiler: second
+
+          - compiler: linux-gcc8
+            os: ubuntu-18.04
+            preconfigure: sudo apt-get install -y gcc-8 g++-8
+            cmake_opts: -DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8
+
+          - compiler: linux-clang8
+            os: ubuntu-18.04
+            preconfigure: sudo apt-get install -y clang-8
+            cmake_opts: -DCMAKE_C_COMPILER=clang-8 -DCMAKE_CXX_COMPILER=clang++-8
+
+          - compiler: windows-msvs
+            os: windows-latest
+
+          - compiler: windows-gcc
+            os: windows-2019
             cmake_opts: -G "MSYS Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
-        exclude: # msvs
-          - os: windows-latest
-            compiler: native
+
+          - compiler: windows-clang
+            os: windows-2019
+            preconfigure: choco install llvm 
+            cmake_opts: -G "MSYS Makefiles" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+
     steps:
     - uses: actions/checkout@v1
+    - name: preconfigure
+      run: ${{ matrix.preconfigure }}
     - name: configure
       run: cmake . -Wdev ${{ matrix.cmake_opts }}
     - name: build
       run: cmake --build . # --verbose
     - name: test
       run: ctest --extra-verbose
+#    - uses: actions/upload-artifact@master
+#      with:
+#        name: main
+#        path: main
