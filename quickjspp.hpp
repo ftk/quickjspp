@@ -1,5 +1,24 @@
 #pragma once
 
+//#define QJS_CLASS_INTERFACE 1
+/** Macro QJS_CLASS_INTERFACE describes how to pass class objects between JS and C++.
+ * 1 - use std::shared_ptr<T>
+ * - recommended for modern C++ projects
+ * - automatic object lifetime management
+ * - incurs performance penalty by creating shared_ptr each time pointer is passed to JS
+ * - T * is converted to shared_ptr with empty deleter
+ * 2 - use T *
+ * - recommended for legacy and C projects
+ * - C++ side manages object lifetime
+ * - no shared_ptr conversions
+ * - creating an object (calling constructor) in JS requires the object to be freed in C++
+ * - very fast
+ */
+#ifndef QJS_CLASS_INTERFACE
+#define QJS_CLASS_INTERFACE 1
+#endif
+
+
 extern "C" {
 #include "quickjs/quickjs.h"
 #include "quickjs/quickjs-libc.h"
@@ -240,6 +259,15 @@ struct js_traits<const char *>
 
 
 namespace detail {
+#if QJS_CLASS_INTERFACE == 1
+/** Pointer to class type - defaults to std::shared_ptr. Can be changed using macro QJS_CLASS_INTERFACE. */
+template <typename T>
+using qjspp_ptr = std::shared_ptr<T>;
+#else
+/** Pointer to class type - T *. Can be changed using macro QJS_CLASS_INTERFACE. */
+template <typename T>
+using qjspp_ptr = T *;
+#endif
 
 /** Helper function to convert and then free JSValue. */
 template <typename T>
@@ -394,7 +422,7 @@ struct js_traits<fwrapper<F>>
     {
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argv);
+            return detail::wrap_this_call<R, detail::qjspp_ptr<T>, Args...>(ctx, F, this_value, argv);
         }, fw.name, sizeof...(Args));
 
     }
@@ -408,7 +436,7 @@ struct js_traits<fwrapper<F>>
     {
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argv);
+            return detail::wrap_this_call<R, detail::qjspp_ptr<T>, Args...>(ctx, F, this_value, argv);
         }, fw.name, sizeof...(Args));
 
     }
@@ -430,16 +458,30 @@ struct ctor_wrapper
 template <class T, typename... Args>
 struct js_traits<ctor_wrapper<T, Args...>>
 {
-    static JSValue wrap(JSContext * ctx, ctor_wrapper<T, Args...> cw) noexcept
+    static JSValue wrap(JSContext * ctx, ctor_wrapper<T, Args...> cw)
     {
         return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                         JSValueConst * argv) noexcept -> JSValue {
+#if QJS_CLASS_INTERFACE == 1
             return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
+#else
+            // TODO: perfect fwd
+            auto make_new_ptr = [](auto... args) { return new T(args...);};
+            // uncomment function below to use js_malloc instead of new
+            /*auto make_new_ptr = [ctx](auto... args) -> T* {
+                T * ptr = reinterpret_cast<T *>(js_malloc(ctx, sizeof(T)));
+                if(!ptr) return nullptr;
+                new(ptr) T(args...);
+                return ptr;
+            };*/
+
+            return detail::wrap_call<detail::qjspp_ptr<T>, Args...>(ctx, make_new_ptr, argv);
+#endif
         }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
     }
 };
 
-
+#if QJS_CLASS_INTERFACE == 1
 /** Conversions for std::shared_ptr<T>.
  * T should be registered to a context before conversions.
  * @tparam T class type
@@ -522,7 +564,9 @@ struct js_traits<std::shared_ptr<T>>
     }
 };
 
-// T * - non-owning pointer
+/** T * - non-owning pointer.
+ * Creates std::shared_ptr with empty deleter.
+ */
 template <class T>
 struct js_traits<T *>
 {
@@ -555,6 +599,77 @@ struct js_traits<T *>
     }
 };
 
+#elif QJS_CLASS_INTERFACE == 2
+// T *
+// TODO: check if nullptr can be passed
+template <class T>
+struct js_traits<T *>
+{
+    /// Registered class id in QuickJS.
+    inline static JSClassID QJSClassId = 0;
+
+    /** Register class in QuickJS context.
+     *
+     * @param ctx context
+     * @param name class name
+     * @param proto class prototype or JS_NULL
+     * @throws exception
+     */
+    static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL)
+    {
+        if(QJSClassId == 0)
+        {
+            JS_NewClassID(&QJSClassId);
+        }
+        auto rt = JS_GetRuntime(ctx);
+        if(!JS_IsRegisteredClass(rt, QJSClassId))
+        {
+            JSClassDef def{
+                    name,
+                    // destructor
+                    nullptr // do nothing - C++ side should handle object lifetime
+            };
+            int e = JS_NewClass(rt, QJSClassId, &def);
+            if(e < 0)
+            {
+                JS_ThrowInternalError(ctx, "Cant register class %s", name);
+                throw exception{};
+            }
+        }
+        JS_SetClassProto(ctx, QJSClassId, proto);
+    }
+
+    static JSValue wrap(JSContext * ctx, T * ptr)
+    {
+        if(QJSClassId == 0) // not registered
+            throw exception{};
+        auto jsobj = JS_NewObjectClass(ctx, QJSClassId);
+        if(JS_IsException(jsobj))
+        {
+            return jsobj;
+        }
+        JS_SetOpaque(jsobj, ptr);
+        return jsobj;
+    }
+
+    static T * unwrap(JSContext * ctx, JSValueConst v)
+    {
+        auto ptr = reinterpret_cast<T *>(JS_GetOpaque2(ctx, v, QJSClassId));
+        if(!ptr)
+            throw exception{};
+        return ptr;
+    }
+
+    // "delete ptr;", but using js_free_rt
+    /*static void free(JS_Runtime * rt, T * ptr) noexcept
+    {
+        // delete ptr;
+        ptr->~T();
+        js_free_rt(rt, ptr);
+    }*/
+};
+#endif
+
 namespace detail {
 /** A faster std::function-like object with type erasure.
  * Used to convert any callable objects (including lambdas) to JSValue.
@@ -568,6 +683,7 @@ struct function
 
     alignas(std::max_align_t) char functor[];
 
+    /** Allocates storage for function and Functor and move constructs f into it, also initializes destroyer(to destruct Functor). */
     template <typename Functor>
     static function * create(JSRuntime * rt, Functor&& f)
     {
@@ -598,6 +714,9 @@ struct js_traits<detail::function>
     inline static JSClassID QJSClassId = 0;
 
     // TODO: replace ctx with rt
+    /** Registers detail::function class that can hold any callable object (not only function pointer).
+     * Conversion to it is defined in js_traits<std::function<...>>.
+     */
     static void register_class(JSContext * ctx, const char * name)
     {
         if(QJSClassId == 0)
@@ -719,12 +838,12 @@ struct get_set<M>
 {
     using is_const = std::is_const<R>;
 
-    static const R& get(const std::shared_ptr<T>& ptr)
+    static const R& get(const qjspp_ptr<T>& ptr)
     {
         return *ptr.*M;
     }
 
-    static R& set(const std::shared_ptr<T>& ptr, R value)
+    static R& set(const qjspp_ptr<T>& ptr, R value)
     {
         return *ptr.*M = std::move(value);
     }
@@ -1145,7 +1264,7 @@ public:
     template <class T>
     void registerClass(const char * name, JSValue proto = JS_NULL)
     {
-        js_traits<std::shared_ptr<T>>::register_class(ctx, name, proto);
+        js_traits<detail::qjspp_ptr<T>>::register_class(ctx, name, proto);
     }
 
     Value eval(std::string_view buffer, const char * filename = "<eval>", unsigned eval_flags = 0)
@@ -1224,6 +1343,7 @@ struct js_traits<std::function<R(Args...)>>
         fptr->invoker = [](function * self, JSContext * ctx, JSValueConst this_value, int argc, JSValueConst * argv) {
             assert(self);
             auto f = reinterpret_cast<Functor *>(&self->functor);
+            assert(f);
             return detail::wrap_call<R, Args...>(ctx, *f, argv);
         };
         JS_SetOpaque(obj, fptr);
