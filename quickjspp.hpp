@@ -185,6 +185,10 @@ public:
 
     js_string(const js_string& other) = delete;
 
+    operator const char * () const {
+        return this->data();
+    }
+
     ~js_string()
     {
         if(ctx)
@@ -235,6 +239,10 @@ struct js_traits<const char *>
     static JSValue wrap(JSContext * ctx, const char * str) noexcept
     {
         return JS_NewString(ctx, str);
+    }
+    static detail::js_string unwrap(JSContext * ctx, JSValueConst v)
+    {
+        return js_traits<std::string_view>::unwrap(ctx, v);
     }
 };
 
