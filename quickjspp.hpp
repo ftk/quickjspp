@@ -135,6 +135,26 @@ struct js_traits<int32_t>
     }
 };
 
+/** Conversion traits for int64.
+ */
+template <>
+struct js_traits<int64_t>
+{
+    /// @throws exception
+    static int64_t unwrap(JSContext * ctx, JSValueConst v)
+    {
+        int64_t r;
+        if(JS_ToInt64(ctx, &r, v))
+            throw exception{};
+        return r;
+    }
+
+    static JSValue wrap(JSContext * ctx, int64_t i) noexcept
+    {
+        return JS_NewInt64(ctx, i);
+    }
+};
+
 /** Conversion traits for boolean.
  */
 template <>
