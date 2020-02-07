@@ -61,9 +61,9 @@ struct allocator
 class exception {};
 
 /** Javascript conversion traits.
- * Describes how to convert type R to/from JSValue.
+ * Describes how to convert type R to/from JSValue. Second template argument can be used for SFINAE/enable_if type filters.
  */
-template <typename R>
+template <typename R, typename /*_SFINAE*/ = void>
 struct js_traits
 {
     /** Create an object of C++ type R given JSValue v and JSContext.
@@ -95,24 +95,37 @@ struct js_traits<JSValue>
     }
 };
 
-/** Conversion traits for int32.
+/** Conversion traits for integers.
  */
-template <>
-struct js_traits<int32_t>
+template <typename Int>
+struct js_traits<Int, std::enable_if_t<std::is_integral_v<Int> && sizeof(Int) <= sizeof(int64_t)>>
 {
 
     /// @throws exception
-    static int32_t unwrap(JSContext * ctx, JSValueConst v)
+    static Int unwrap(JSContext * ctx, JSValueConst v)
     {
-        int32_t r;
-        if(JS_ToInt32(ctx, &r, v))
-            throw exception{};
-        return r;
+        if constexpr (sizeof(Int) > sizeof(int32_t))
+        {
+            int64_t r;
+            if(JS_ToInt64(ctx, &r, v))
+                throw exception{};
+            return static_cast<Int>(r);
+        }
+        else
+        {
+            int32_t r;
+            if(JS_ToInt32(ctx, &r, v))
+                throw exception{};
+            return static_cast<Int>(r);
+        }
     }
 
-    static JSValue wrap(JSContext * ctx, int32_t i) noexcept
+    static JSValue wrap(JSContext * ctx, Int i) noexcept
     {
-        return JS_NewInt32(ctx, i);
+        if constexpr (std::is_same_v<Int, uint32_t> || sizeof(Int) > sizeof(int32_t))
+            return JS_NewInt64(ctx, static_cast<Int>(i));
+        else
+            return JS_NewInt32(ctx, static_cast<Int>(i));
     }
 };
 
@@ -443,16 +456,16 @@ struct js_traits<ctor_wrapper<T, Args...>>
     {
         return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                         JSValueConst * argv) noexcept -> JSValue {
-            
+
             std::shared_ptr<T> ptr =  std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argv));
-            
+
             if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
             {
                 js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
                 //JS_ThrowTypeError(ctx, "quickjspp: Class %s is not registered", typeid(T).name());
                 //return JS_EXCEPTION;
             }
-            
+
             auto proto = JS_GetPropertyStr(ctx, this_value, "prototype");
             if (JS_IsException(proto))
                 return proto;
@@ -460,7 +473,7 @@ struct js_traits<ctor_wrapper<T, Args...>>
             JS_FreeValue(ctx, proto);
             if (JS_IsException(jsobj))
                 return jsobj;
-                
+
             //auto pptr = new std::shared_ptr<T>(std::move(ptr));
             auto alloc = allocator<std::shared_ptr<T>>{ctx};
             using atraits = std::allocator_traits<decltype(alloc)>;
@@ -469,7 +482,7 @@ struct js_traits<ctor_wrapper<T, Args...>>
 
             JS_SetOpaque(jsobj, pptr);
             return jsobj;
-            
+
             // return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
         }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
     }
