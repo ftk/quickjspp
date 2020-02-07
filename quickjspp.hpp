@@ -1206,7 +1206,9 @@ public:
             {
                 if(!name)
                     name = this->name;
-                module.add(name, qjs::ctor_wrapper<T, Args...>{name});
+                Value ctor = context.newValue(qjs::ctor_wrapper<T, Args...>{name});
+                JS_SetConstructor(context.ctx, ctor.v, prototype.v);
+                module.add(name, std::move(ctor));
                 return *this;
             }
 
