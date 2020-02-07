@@ -80,9 +80,9 @@ struct allocator
 class exception {};
 
 /** Javascript conversion traits.
- * Describes how to convert type R to/from JSValue.
+ * Describes how to convert type R to/from JSValue. Second template argument can be used for SFINAE/enable_if type filters.
  */
-template <typename R>
+template <typename R, typename /*_SFINAE*/ = void>
 struct js_traits
 {
     /** Create an object of C++ type R given JSValue v and JSContext.
@@ -114,44 +114,37 @@ struct js_traits<JSValue>
     }
 };
 
-/** Conversion traits for int32.
+/** Conversion traits for integers.
  */
-template <>
-struct js_traits<int32_t>
+template <typename Int>
+struct js_traits<Int, std::enable_if_t<std::is_integral_v<Int> && sizeof(Int) <= sizeof(int64_t)>>
 {
 
     /// @throws exception
-    static int32_t unwrap(JSContext * ctx, JSValueConst v)
+    static Int unwrap(JSContext * ctx, JSValueConst v)
     {
-        int32_t r;
-        if(JS_ToInt32(ctx, &r, v))
-            throw exception{};
-        return r;
+        if constexpr (sizeof(Int) > sizeof(int32_t))
+        {
+            int64_t r;
+            if(JS_ToInt64(ctx, &r, v))
+                throw exception{};
+            return static_cast<Int>(r);
+        }
+        else
+        {
+            int32_t r;
+            if(JS_ToInt32(ctx, &r, v))
+                throw exception{};
+            return static_cast<Int>(r);
+        }
     }
 
-    static JSValue wrap(JSContext * ctx, int32_t i) noexcept
+    static JSValue wrap(JSContext * ctx, Int i) noexcept
     {
-        return JS_NewInt32(ctx, i);
-    }
-};
-
-/** Conversion traits for int64.
- */
-template <>
-struct js_traits<int64_t>
-{
-    /// @throws exception
-    static int64_t unwrap(JSContext * ctx, JSValueConst v)
-    {
-        int64_t r;
-        if(JS_ToInt64(ctx, &r, v))
-            throw exception{};
-        return r;
-    }
-
-    static JSValue wrap(JSContext * ctx, int64_t i) noexcept
-    {
-        return JS_NewInt64(ctx, i);
+        if constexpr (std::is_same_v<Int, uint32_t> || sizeof(Int) > sizeof(int32_t))
+            return JS_NewInt64(ctx, static_cast<Int>(i));
+        else
+            return JS_NewInt32(ctx, static_cast<Int>(i));
     }
 };
 
