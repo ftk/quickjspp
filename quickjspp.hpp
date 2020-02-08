@@ -443,7 +443,34 @@ struct js_traits<ctor_wrapper<T, Args...>>
     {
         return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                         JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
+            
+            std::shared_ptr<T> ptr =  std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argv));
+            
+            if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
+            {
+                js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
+                //JS_ThrowTypeError(ctx, "quickjspp: Class %s is not registered", typeid(T).name());
+                //return JS_EXCEPTION;
+            }
+            
+            auto proto = JS_GetPropertyStr(ctx, this_value, "prototype");
+            if (JS_IsException(proto))
+                return proto;
+            auto jsobj = JS_NewObjectProtoClass(ctx, proto, js_traits<std::shared_ptr<T>>::QJSClassId);
+            JS_FreeValue(ctx, proto);
+            if (JS_IsException(jsobj))
+                return jsobj;
+                
+            //auto pptr = new std::shared_ptr<T>(std::move(ptr));
+            auto alloc = allocator<std::shared_ptr<T>>{ctx};
+            using atraits = std::allocator_traits<decltype(alloc)>;
+            auto pptr = atraits::allocate(alloc, 1);
+            atraits::construct(alloc, pptr, std::move(ptr));
+
+            JS_SetOpaque(jsobj, pptr);
+            return jsobj;
+            
+            // return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
         }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
     }
 };
