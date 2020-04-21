@@ -47,15 +47,15 @@ jobs:
             cmake_opts: -DCMAKE_C_COMPILER=clang-9 -DCMAKE_CXX_COMPILER=clang++-9
             #cflags: -stdlib=libc++
 
-          - compiler: windows-msvs
-            os: windows-latest
+#          - compiler: windows-msvs # not supported
+#            os: windows-latest
 
           - compiler: windows-gcc
             os: windows-2019
             cmake_opts: -G "MSYS Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
 
-          - compiler: macos-clang
-            os: macos-latest
+#          - compiler: macos-clang # libc++ is broken
+#            os: macos-latest
 
     steps:
     - uses: actions/checkout@v2
