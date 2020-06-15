@@ -1252,7 +1252,7 @@ public:
 template <>
 struct js_traits<Value>
 {
-    static Value unwrap(JSContext * ctx, JSValueConst v) noexcept
+    static Value unwrap(JSContext * ctx, JSValueConst v)
     {
         return Value{ctx, JS_DupValue(ctx, v)};
     }
