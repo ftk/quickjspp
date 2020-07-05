@@ -1,9 +1,7 @@
 #pragma once
 
-extern "C" {
 #include "quickjs/quickjs.h"
 #include "quickjs/quickjs-libc.h"
-}
 
 #include <vector>
 #include <string_view>
