@@ -333,8 +333,11 @@ JSRuntime *JS_NewRuntime(void);
 void JS_SetRuntimeInfo(JSRuntime *rt, const char *info);
 void JS_SetMemoryLimit(JSRuntime *rt, size_t limit);
 void JS_SetGCThreshold(JSRuntime *rt, size_t gc_threshold);
+void JS_SetMaxStackSize(JSRuntime *rt, size_t stack_size);
 JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque);
 void JS_FreeRuntime(JSRuntime *rt);
+void *JS_GetRuntimeOpaque(JSRuntime *rt);
+void JS_SetRuntimeOpaque(JSRuntime *rt, void *opaque);
 typedef void JS_MarkFunc(JSRuntime *rt, JSGCObjectHeader *gp);
 void JS_MarkValue(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func);
 void JS_RunGC(JSRuntime *rt);
@@ -342,10 +345,10 @@ JS_BOOL JS_IsLiveObject(JSRuntime *rt, JSValueConst obj);
 
 JSContext *JS_NewContext(JSRuntime *rt);
 void JS_FreeContext(JSContext *s);
+JSContext *JS_DupContext(JSContext *ctx);
 void *JS_GetContextOpaque(JSContext *ctx);
 void JS_SetContextOpaque(JSContext *ctx, void *opaque);
 JSRuntime *JS_GetRuntime(JSContext *ctx);
-void JS_SetMaxStackSize(JSContext *ctx, size_t stack_size);
 void JS_SetClassProto(JSContext *ctx, JSClassID class_id, JSValue obj);
 JSValue JS_GetClassProto(JSContext *ctx, JSClassID class_id);
 
@@ -495,7 +498,7 @@ int JS_IsRegisteredClass(JSRuntime *rt, JSClassID class_id);
 
 static js_force_inline JSValue JS_NewBool(JSContext *ctx, JS_BOOL val)
 {
-    return JS_MKVAL(JS_TAG_BOOL, val);
+    return JS_MKVAL(JS_TAG_BOOL, (val != 0));
 }
 
 static js_force_inline JSValue JS_NewInt32(JSContext *ctx, int32_t val)
@@ -508,7 +511,28 @@ static js_force_inline JSValue JS_NewCatchOffset(JSContext *ctx, int32_t val)
     return JS_MKVAL(JS_TAG_CATCH_OFFSET, val);
 }
 
-JSValue JS_NewInt64(JSContext *ctx, int64_t v);
+static js_force_inline JSValue JS_NewInt64(JSContext *ctx, int64_t val)
+{
+    JSValue v;
+    if (val == (int32_t)val) {
+        v = JS_NewInt32(ctx, val);
+    } else {
+        v = __JS_NewFloat64(ctx, val);
+    }
+    return v;
+}
+
+static js_force_inline JSValue JS_NewUint32(JSContext *ctx, uint32_t val)
+{
+    JSValue v;
+    if (val <= 0x7fffffff) {
+        v = JS_NewInt32(ctx, val);
+    } else {
+        v = __JS_NewFloat64(ctx, val);
+    }
+    return v;
+}
+
 JSValue JS_NewBigInt64(JSContext *ctx, int64_t v);
 JSValue JS_NewBigUint64(JSContext *ctx, uint64_t v);
 
@@ -650,14 +674,17 @@ static inline JSValue JS_DupValueRT(JSRuntime *rt, JSValueConst v)
 
 int JS_ToBool(JSContext *ctx, JSValueConst val); /* return -1 for JS_EXCEPTION */
 int JS_ToInt32(JSContext *ctx, int32_t *pres, JSValueConst val);
-static int inline JS_ToUint32(JSContext *ctx, uint32_t *pres, JSValueConst val)
+static inline int JS_ToUint32(JSContext *ctx, uint32_t *pres, JSValueConst val)
 {
     return JS_ToInt32(ctx, (int32_t*)pres, val);
 }
 int JS_ToInt64(JSContext *ctx, int64_t *pres, JSValueConst val);
 int JS_ToIndex(JSContext *ctx, uint64_t *plen, JSValueConst val);
 int JS_ToFloat64(JSContext *ctx, double *pres, JSValueConst val);
+/* return an exception if 'val' is a Number */
 int JS_ToBigInt64(JSContext *ctx, int64_t *pres, JSValueConst val);
+/* same as JS_ToInt64() but allow BigInt */
+int JS_ToInt64Ext(JSContext *ctx, int64_t *pres, JSValueConst val);
 
 JSValue JS_NewStringLen(JSContext *ctx, const char *str1, size_t len1);
 JSValue JS_NewString(JSContext *ctx, const char *str);
@@ -719,7 +746,7 @@ int JS_IsExtensible(JSContext *ctx, JSValueConst obj);
 int JS_PreventExtensions(JSContext *ctx, JSValueConst obj);
 int JS_DeleteProperty(JSContext *ctx, JSValueConst obj, JSAtom prop, int flags);
 int JS_SetPrototype(JSContext *ctx, JSValueConst obj, JSValueConst proto_val);
-JSValueConst JS_GetPrototype(JSContext *ctx, JSValueConst val);
+JSValue JS_GetPrototype(JSContext *ctx, JSValueConst val);
 
 #define JS_GPN_STRING_MASK  (1 << 0)
 #define JS_GPN_SYMBOL_MASK  (1 << 1)
@@ -769,6 +796,9 @@ void *JS_GetOpaque2(JSContext *ctx, JSValueConst obj, JSClassID class_id);
 /* 'buf' must be zero terminated i.e. buf[buf_len] = '\0'. */
 JSValue JS_ParseJSON(JSContext *ctx, const char *buf, size_t buf_len,
                      const char *filename);
+#define JS_PARSE_JSON_EXT (1 << 0) /* allow extended JSON */
+JSValue JS_ParseJSON2(JSContext *ctx, const char *buf, size_t buf_len,
+                      const char *filename, int flags);
 JSValue JS_JSONStringify(JSContext *ctx, JSValueConst obj,
                          JSValueConst replacer, JSValueConst space0);
 
@@ -783,6 +813,14 @@ JSValue JS_GetTypedArrayBuffer(JSContext *ctx, JSValueConst obj,
                                size_t *pbyte_offset,
                                size_t *pbyte_length,
                                size_t *pbytes_per_element);
+typedef struct {
+    void *(*sab_alloc)(void *opaque, size_t size);
+    void (*sab_free)(void *opaque, void *ptr);
+    void (*sab_dup)(void *opaque, void *ptr);
+    void *sab_opaque;
+} JSSharedArrayBufferFunctions;
+void JS_SetSharedArrayBufferFunctions(JSRuntime *rt,
+                                      const JSSharedArrayBufferFunctions *sf);
 
 JSValue JS_NewPromiseCapability(JSContext *ctx, JSValue *resolving_funcs);
 
@@ -826,14 +864,24 @@ JS_BOOL JS_IsJobPending(JSRuntime *rt);
 int JS_ExecutePendingJob(JSRuntime *rt, JSContext **pctx);
 
 /* Object Writer/Reader (currently only used to handle precompiled code) */
-#define JS_WRITE_OBJ_BYTECODE (1 << 0) /* allow function/module */
-#define JS_WRITE_OBJ_BSWAP    (1 << 1) /* byte swapped output */
+#define JS_WRITE_OBJ_BYTECODE  (1 << 0) /* allow function/module */
+#define JS_WRITE_OBJ_BSWAP     (1 << 1) /* byte swapped output */
+#define JS_WRITE_OBJ_SAB       (1 << 2) /* allow SharedArrayBuffer */
+#define JS_WRITE_OBJ_REFERENCE (1 << 3) /* allow object references to
+                                           encode arbitrary object
+                                           graph */
 uint8_t *JS_WriteObject(JSContext *ctx, size_t *psize, JSValueConst obj,
                         int flags);
+uint8_t *JS_WriteObject2(JSContext *ctx, size_t *psize, JSValueConst obj,
+                         int flags, uint8_t ***psab_tab, size_t *psab_tab_len);
+
 #define JS_READ_OBJ_BYTECODE  (1 << 0) /* allow function/module */
 #define JS_READ_OBJ_ROM_DATA  (1 << 1) /* avoid duplicating 'buf' data */
+#define JS_READ_OBJ_SAB       (1 << 2) /* allow SharedArrayBuffer */
+#define JS_READ_OBJ_REFERENCE (1 << 3) /* allow object references */
 JSValue JS_ReadObject(JSContext *ctx, const uint8_t *buf, size_t buf_len,
                       int flags);
+
 /* load the dependencies of the module 'obj'. Useful when JS_ReadObject()
    returns a module. */
 int JS_ResolveModule(JSContext *ctx, JSValueConst obj);

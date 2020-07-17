@@ -1701,10 +1701,12 @@ static int __bf_div(bf_t *r, const bf_t *a, const bf_t *b, limb_t prec,
         memset(taba, 0, d * sizeof(limb_t));
         memcpy(taba + d, a->tab, a->len * sizeof(limb_t));
         if (bf_resize(r, n + 1))
+            goto fail1;
+        if (mp_divnorm(s, r->tab, taba, na, b->tab, nb)) {
+        fail1:
+            bf_free(s, taba);
             goto fail;
-        if (mp_divnorm(s, r->tab, taba, na, b->tab, nb))
-            goto fail;
-        
+        }
         /* see if non zero remainder */
         if (mp_scan_nz(taba, nb))
             r->tab[0] |= 1;
@@ -2526,19 +2528,18 @@ fail:
     return BF_ST_MEM_ERROR;
 }
 
-/* The rounding mode is always BF_RNDZ. Return BF_ST_OVERFLOW if there
+/* The rounding mode is always BF_RNDZ. Return BF_ST_INVALID_OP if there
    is an overflow and 0 otherwise. */
 int bf_get_int32(int *pres, const bf_t *a, int flags)
 {
     uint32_t v;
     int ret;
     if (a->expn >= BF_EXP_INF) {
-        ret = 0;
+        ret = BF_ST_INVALID_OP;
         if (flags & BF_GET_INT_MOD) {
             v = 0;
         } else if (a->expn == BF_EXP_INF) {
             v = (uint32_t)INT32_MAX + a->sign;
-            /* XXX: return overflow ? */
         } else {
             v = INT32_MAX;
         }
@@ -2551,7 +2552,7 @@ int bf_get_int32(int *pres, const bf_t *a, int flags)
             v = -v;
         ret = 0;
     } else if (!(flags & BF_GET_INT_MOD)) {
-        ret = BF_ST_OVERFLOW;
+        ret = BF_ST_INVALID_OP;
         if (a->sign) {
             v = (uint32_t)INT32_MAX + 1;
             if (a->expn == 32 && 
@@ -2571,14 +2572,14 @@ int bf_get_int32(int *pres, const bf_t *a, int flags)
     return ret;
 }
 
-/* The rounding mode is always BF_RNDZ. Return BF_ST_OVERFLOW if there
+/* The rounding mode is always BF_RNDZ. Return BF_ST_INVALID_OP if there
    is an overflow and 0 otherwise. */
 int bf_get_int64(int64_t *pres, const bf_t *a, int flags)
 {
     uint64_t v;
     int ret;
     if (a->expn >= BF_EXP_INF) {
-        ret = 0;
+        ret = BF_ST_INVALID_OP;
         if (flags & BF_GET_INT_MOD) {
             v = 0;
         } else if (a->expn == BF_EXP_INF) {
@@ -2603,7 +2604,7 @@ int bf_get_int64(int64_t *pres, const bf_t *a, int flags)
             v = -v;
         ret = 0;
     } else if (!(flags & BF_GET_INT_MOD)) {
-        ret = BF_ST_OVERFLOW;
+        ret = BF_ST_INVALID_OP;
         if (a->sign) {
             uint64_t v1;
             v = (uint64_t)INT64_MAX + 1;
@@ -2627,6 +2628,40 @@ int bf_get_int64(int64_t *pres, const bf_t *a, int flags)
         if (a->sign)
             v = -v;
         ret = 0;
+    }
+    *pres = v;
+    return ret;
+}
+
+/* The rounding mode is always BF_RNDZ. Return BF_ST_INVALID_OP if there
+   is an overflow and 0 otherwise. */
+int bf_get_uint64(uint64_t *pres, const bf_t *a)
+{
+    uint64_t v;
+    int ret;
+    if (a->expn == BF_EXP_NAN) {
+        goto overflow;
+    } else if (a->expn <= 0) {
+        v = 0;
+        ret = 0;
+    } else if (a->sign) {
+        v = 0;
+        ret = BF_ST_INVALID_OP;
+    } else if (a->expn <= 64) {
+#if LIMB_BITS == 32
+        if (a->expn <= 32)
+            v = a->tab[a->len - 1] >> (LIMB_BITS - a->expn);
+        else
+            v = (((uint64_t)a->tab[a->len - 1] << 32) |
+                 get_limbz(a, a->len - 2)) >> (64 - a->expn);
+#else
+        v = a->tab[a->len - 1] >> (LIMB_BITS - a->expn);
+#endif
+        ret = 0;
+    } else {
+    overflow:
+        v = UINT64_MAX;
+        ret = BF_ST_INVALID_OP;
     }
     *pres = v;
     return ret;
@@ -3335,12 +3370,14 @@ slimb_t bf_mul_log2_radix(slimb_t a1, unsigned int radix, int is_inv,
 }
 
 /* 'n' is the number of output limbs */
-static void bf_integer_to_radix_rec(bf_t *pow_tab,
-                                    limb_t *out, const bf_t *a, limb_t n,
-                                    int level, limb_t n0, limb_t radixl,
-                                    unsigned int radixl_bits)
+static int bf_integer_to_radix_rec(bf_t *pow_tab,
+                                   limb_t *out, const bf_t *a, limb_t n,
+                                   int level, limb_t n0, limb_t radixl,
+                                   unsigned int radixl_bits)
 {
     limb_t n1, n2, q_prec;
+    int ret;
+    
     assert(n >= 1);
     if (n == 1) {
         out[0] = get_bits(a->tab, a->len, a->len * LIMB_BITS - a->expn);
@@ -3367,63 +3404,81 @@ static void bf_integer_to_radix_rec(bf_t *pow_tab,
         n1 = n - n2;
         B = &pow_tab[2 * level];
         B_inv = &pow_tab[2 * level + 1];
+        ret = 0;
         if (B->len == 0) {
             /* compute BASE^n2 */
-            bf_pow_ui_ui(B, radixl, n2, BF_PREC_INF, BF_RNDZ);
+            ret |= bf_pow_ui_ui(B, radixl, n2, BF_PREC_INF, BF_RNDZ);
             /* we use enough bits for the maximum possible 'n1' value,
                i.e. n2 + 1 */
-            bf_set_ui(&R, 1);
-            bf_div(B_inv, &R, B, (n2 + 1) * radixl_bits + 2, BF_RNDN);
+            ret |= bf_set_ui(&R, 1);
+            ret |= bf_div(B_inv, &R, B, (n2 + 1) * radixl_bits + 2, BF_RNDN);
         }
         //        printf("%d: n1=% " PRId64 " n2=%" PRId64 "\n", level, n1, n2);
         q_prec = n1 * radixl_bits;
-        bf_mul(&Q, a, B_inv, q_prec, BF_RNDN);
-        bf_rint(&Q, BF_RNDZ);
+        ret |= bf_mul(&Q, a, B_inv, q_prec, BF_RNDN);
+        ret |= bf_rint(&Q, BF_RNDZ);
         
-        bf_mul(&R, &Q, B, BF_PREC_INF, BF_RNDZ);
-        bf_sub(&R, a, &R, BF_PREC_INF, BF_RNDZ);
+        ret |= bf_mul(&R, &Q, B, BF_PREC_INF, BF_RNDZ);
+        ret |= bf_sub(&R, a, &R, BF_PREC_INF, BF_RNDZ);
+
+        if (ret & BF_ST_MEM_ERROR)
+            goto fail;
         /* adjust if necessary */
         q_add = 0;
         while (R.sign && R.len != 0) {
-            bf_add(&R, &R, B, BF_PREC_INF, BF_RNDZ);
+            if (bf_add(&R, &R, B, BF_PREC_INF, BF_RNDZ))
+                goto fail;
             q_add--;
         }
         while (bf_cmpu(&R, B) >= 0) {
-            bf_sub(&R, &R, B, BF_PREC_INF, BF_RNDZ);
+            if (bf_sub(&R, &R, B, BF_PREC_INF, BF_RNDZ))
+                goto fail;
             q_add++;
         }
         if (q_add != 0) {
-            bf_add_si(&Q, &Q, q_add, BF_PREC_INF, BF_RNDZ);
+            if (bf_add_si(&Q, &Q, q_add, BF_PREC_INF, BF_RNDZ))
+                goto fail;
         }
-        bf_integer_to_radix_rec(pow_tab, out + n2, &Q, n1, level + 1, n0,
-                                radixl, radixl_bits);
-        bf_integer_to_radix_rec(pow_tab, out, &R, n2, level + 1, n0,
-                                radixl, radixl_bits);
+        if (bf_integer_to_radix_rec(pow_tab, out + n2, &Q, n1, level + 1, n0,
+                                    radixl, radixl_bits))
+            goto fail;
+        if (bf_integer_to_radix_rec(pow_tab, out, &R, n2, level + 1, n0,
+                                    radixl, radixl_bits)) {
+        fail:
+            bf_delete(&Q);
+            bf_delete(&R);
+            return -1;
+        }
         bf_delete(&Q);
         bf_delete(&R);
     }
+    return 0;
 }
 
-static void bf_integer_to_radix(bf_t *r, const bf_t *a, limb_t radixl)
+/* return 0 if OK != 0 if memory error */
+static int bf_integer_to_radix(bf_t *r, const bf_t *a, limb_t radixl)
 {
     bf_context_t *s = r->ctx;
     limb_t r_len;
     bf_t *pow_tab;
-    int i, pow_tab_len;
+    int i, pow_tab_len, ret;
     
     r_len = r->len;
     pow_tab_len = (ceil_log2(r_len) + 2) * 2; /* XXX: check */
     pow_tab = bf_malloc(s, sizeof(pow_tab[0]) * pow_tab_len);
+    if (!pow_tab)
+        return -1;
     for(i = 0; i < pow_tab_len; i++)
         bf_init(r->ctx, &pow_tab[i]);
 
-    bf_integer_to_radix_rec(pow_tab, r->tab, a, r_len, 0, r_len, radixl,
-                            ceil_log2(radixl));
+    ret = bf_integer_to_radix_rec(pow_tab, r->tab, a, r_len, 0, r_len, radixl,
+                                  ceil_log2(radixl));
 
     for(i = 0; i < pow_tab_len; i++) {
         bf_delete(&pow_tab[i]);
     }
     bf_free(s, pow_tab);
+    return ret;
 }
 
 /* a must be >= 0. 'P' is the wanted number of digits in radix
@@ -3590,8 +3645,14 @@ static void output_digits(DynBuf *s, const bf_t *a1, int radix, limb_t n_digits,
         a = &a_s;
         bf_init(a1->ctx, a);
         n = (n_digits + digits_per_limb - 1) / digits_per_limb;
-        bf_resize(a, n);
-        bf_integer_to_radix(a, a1, radixl);
+        if (bf_resize(a, n)) {
+            dbuf_set_error(s);
+            goto done;
+        }
+        if (bf_integer_to_radix(a, a1, radixl)) {
+            dbuf_set_error(s);
+            goto done;
+        }
         radix_bits = 0;
         pos = n;
         pos_incr = 1;
@@ -3624,6 +3685,7 @@ static void output_digits(DynBuf *s, const bf_t *a1, int radix, limb_t n_digits,
         buf_pos += l;
         i += l;
     }
+ done:
     if (a != a1)
         bf_delete(a);
 }

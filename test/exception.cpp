@@ -50,4 +50,20 @@ int main()
         auto exc = context.getException();
         std::cout << (std::string) exc << '\n' << (std::string_view) exc["stack"];
     }
+
+    try
+    {
+        qjs::Value function = context.eval("() => { let a = b; }", "<test>");
+        auto native = function.as<std::function<qjs::Value()>>();
+        qjs::Value result = native();
+        assert(false);
+    }
+    catch(qjs::exception)
+    {
+        auto exc = context.getException();
+        std::cerr << (exc.isError() ? "Error: " : "Throw: ") << (std::string)exc << std::endl;
+        if((bool)exc["stack"])
+            std::cerr << (std::string)exc["stack"] << std::endl;
+    }
+
 }

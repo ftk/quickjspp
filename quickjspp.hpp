@@ -18,11 +18,8 @@
 #define QJS_CLASS_INTERFACE 1
 #endif
 
-
-extern "C" {
 #include "quickjs/quickjs.h"
 #include "quickjs/quickjs-libc.h"
-}
 
 #include <vector>
 #include <string_view>
@@ -485,20 +482,53 @@ struct js_traits<ctor_wrapper<T, Args...>>
         return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                         JSValueConst * argv) noexcept -> JSValue {
 #if QJS_CLASS_INTERFACE == 1
-            return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
+            std::shared_ptr<T> ptr = std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argv));
 #else
             // TODO: perfect fwd
             auto make_new_ptr = [](auto... args) { return new T(args...);};
             // uncomment function below to use js_malloc instead of new
             /*auto make_new_ptr = [ctx](auto... args) -> T* {
                 T * ptr = reinterpret_cast<T *>(js_malloc(ctx, sizeof(T)));
-                if(!ptr) return nullptr;
+                if(!ptr) throw std::bad_alloc{};
                 new(ptr) T(args...);
                 return ptr;
             };*/
 
-            return detail::wrap_call<detail::qjspp_ptr<T>, Args...>(ctx, make_new_ptr, argv);
+            T * ptr = std::apply(make_new_ptr, detail::unwrap_args<Args...>(ctx, argv));
 #endif
+
+            if(js_traits<detail::qjspp_ptr<T>>::QJSClassId == 0) // not registered
+            {
+#if defined(__cpp_rtti)
+                // automatically register class on first use (no prototype)
+                js_traits<detail::qjspp_ptr<T>>::register_class(ctx, typeid(T).name());
+#else
+                JS_ThrowTypeError(ctx, "quickjspp ctor_wrapper<T>::wrap: Class is not registered");
+                return JS_EXCEPTION;
+#endif
+            }
+
+            auto proto = JS_GetPropertyStr(ctx, this_value, "prototype");
+            if (JS_IsException(proto))
+                return proto;
+            auto jsobj = JS_NewObjectProtoClass(ctx, proto, js_traits<detail::qjspp_ptr<T>>::QJSClassId);
+            JS_FreeValue(ctx, proto);
+            if (JS_IsException(jsobj))
+                return jsobj;
+#if QJS_CLASS_INTERFACE == 1
+            //auto pptr = new std::shared_ptr<T>(std::move(ptr));
+            auto alloc = allocator<std::shared_ptr<T>>{ctx};
+            using atraits = std::allocator_traits<decltype(alloc)>;
+            auto pptr = atraits::allocate(alloc, 1);
+            atraits::construct(alloc, pptr, std::move(ptr));
+
+            JS_SetOpaque(jsobj, pptr);
+#else
+            JS_SetOpaque(jsobj, ptr);
+#endif
+            return jsobj;
+
+            // return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
         }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
     }
 };
@@ -560,9 +590,13 @@ struct js_traits<std::shared_ptr<T>>
     {
         if(QJSClassId == 0) // not registered
         {
-            try { register_class(ctx, typeid(T).name()); }
-            catch(exception) { return JS_EXCEPTION; }
-            //return JS_ThrowTypeError(ctx, "quickjspp: Class %s is not registered", typeid(T).name());
+#if defined(__cpp_rtti)
+            // automatically register class on first use (no prototype)
+            register_class(ctx, typeid(T).name());
+#else
+            JS_ThrowTypeError(ctx, "quickjspp std::shared_ptr<T>::wrap: Class is not registered");
+            return JS_EXCEPTION;
+#endif
         }
         auto jsobj = JS_NewObjectClass(ctx, QJSClassId);
         if(JS_IsException(jsobj))
@@ -599,9 +633,12 @@ struct js_traits<T *>
     {
         if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
         {
-            try {  js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name()); }
-            catch(exception) { return JS_EXCEPTION; }
-            //return JS_ThrowTypeError(ctx, "quickjspp: Class %s is not registered", typeid(T).name());
+#if defined(__cpp_rtti)
+            js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
+#else
+            JS_ThrowTypeError(ctx, "quickjspp js_traits<T *>::wrap: Class is not registered");
+            return JS_EXCEPTION;
+#endif
         }
         auto jsobj = JS_NewObjectClass(ctx, js_traits<std::shared_ptr<T>>::QJSClassId);
         if(JS_IsException(jsobj))
@@ -1348,7 +1385,7 @@ public:
 template <>
 struct js_traits<Value>
 {
-    static Value unwrap(JSContext * ctx, JSValueConst v) noexcept
+    static Value unwrap(JSContext * ctx, JSValueConst v)
     {
         return Value{ctx, JS_DupValue(ctx, v)};
     }

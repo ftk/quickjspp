@@ -15,7 +15,7 @@ int main(int argc, char ** argv)
     Context context(runtime);
     ctx = context.ctx;
 
-
+    js_std_init_handlers(rt);
     /* loader for ES6 modules */
     JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
     js_std_add_helpers(ctx, argc - 1, argv + 1);

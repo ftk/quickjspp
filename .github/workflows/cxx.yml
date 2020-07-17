@@ -1,13 +1,15 @@
 name: CMake C/C++ CI
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        compiler: [linux-gcc, linux-clang, linux-gcc8, linux-clang8, windows-gcc]
+        compiler: [linux-gcc, linux-clang, linux-gcc9, linux-clang9, windows-gcc, linux-gcc-ubsan, linux-gcc-asan, linux-gcc-32, linux-gcc-x32]
+        build_type: [Debug]
         include:
           - compiler: linux-gcc
             os: ubuntu-latest
@@ -16,39 +18,56 @@ jobs:
             os: ubuntu-latest
             cmake_opts: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 
-          - compiler: linux-gcc8
+          - compiler: linux-gcc9
             os: ubuntu-18.04
-            preconfigure: sudo apt-get install -y gcc-8 g++-8
-            cmake_opts: -DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8
+            preconfigure: sudo apt-get update && sudo apt-get install -y gcc-9 g++-9
+            cmake_opts: -DCMAKE_C_COMPILER=gcc-9 -DCMAKE_CXX_COMPILER=g++-9
 
-          - compiler: linux-clang8
+          - compiler: linux-gcc-ubsan
+            os: ubuntu-latest
+            cflags: -fsanitize=undefined
+
+          - compiler: linux-gcc-asan
+            os: ubuntu-latest
+            cflags: -fsanitize=address -fsanitize-address-use-after-scope
+
+          - compiler: linux-gcc-32
+            os: ubuntu-latest
+            preconfigure: sudo apt-get update && sudo apt-get install gcc-multilib g++-multilib
+            cflags: -m32
+            
+          - compiler: linux-gcc-x32
+            os: ubuntu-latest
+            preconfigure: sudo apt-get update && sudo apt-get install gcc-multilib g++-multilib
+            cflags: -mx32
+
+          - compiler: linux-clang9
             os: ubuntu-18.04
-            preconfigure: sudo apt-get install -y clang-8
-            cmake_opts: -DCMAKE_C_COMPILER=clang-8 -DCMAKE_CXX_COMPILER=clang++-8
+            preconfigure: sudo apt-get update && sudo apt-get install -y clang-9 libc++-9-dev libc++abi-9-dev
+            cmake_opts: -DCMAKE_C_COMPILER=clang-9 -DCMAKE_CXX_COMPILER=clang++-9
+            #cflags: -stdlib=libc++
 
-          - compiler: windows-msvs
-            os: windows-latest
+#          - compiler: windows-msvs # not supported
+#            os: windows-latest
 
           - compiler: windows-gcc
             os: windows-2019
             cmake_opts: -G "MSYS Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
 
-          - compiler: windows-clang
-            os: windows-2019
-            preconfigure: choco install llvm 
-            cmake_opts: -G "MSYS Makefiles" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+#          - compiler: macos-clang # libc++ is broken
+#            os: macos-latest
 
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
     - name: preconfigure
       run: ${{ matrix.preconfigure }}
     - name: configure
-      run: cmake . -Wdev ${{ matrix.cmake_opts }}
+      run: cmake -S . -B build_dir -Wdev -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_C_FLAGS="${{ matrix.cflags }}" -DCMAKE_CXX_FLAGS="${{ matrix.cflags }}" -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cflags }}" ${{ matrix.cmake_opts }}
     - name: build
-      run: cmake --build . # --verbose
+      run: cmake --build build_dir --verbose
     - name: test
       run: ctest --extra-verbose
-#    - uses: actions/upload-artifact@master
-#      with:
-#        name: main
-#        path: main
+      working-directory: build_dir
+      env:
+        # extra options for address sanitizer
+        ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
