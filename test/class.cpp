@@ -2,7 +2,7 @@
 #include <iostream>
 
 
-#define TYPES bool, int32_t, double, std::shared_ptr<test>, const std::shared_ptr<test>&, std::string, const std::string&
+#define TYPES bool, int32_t, double, qjs::detail::qjspp_ptr<test>, const qjs::detail::qjspp_ptr<test>&, std::string, const std::string&
 
 class base_test
 {
@@ -22,7 +22,7 @@ public:
     bool b;
     mutable int32_t i;
     double d = 7.;
-    std::shared_ptr<test> spt;
+    qjs::detail::qjspp_ptr<test> spt;
     std::string s;
 
     test(int32_t i, TYPES) : i(i)
@@ -39,7 +39,7 @@ public:
     int32_t fi(TYPES) const { i++; return i; }
     bool fb(TYPES) noexcept { i++; return b; }
     double fd(TYPES) const noexcept { i++; return d; }
-    const std::shared_ptr<test>& fspt(TYPES) { i++; return spt; }
+    const qjs::detail::qjspp_ptr<test>& fspt(TYPES) { i++; return spt; }
     const std::string& fs(TYPES) { i++; return s; }
     void f(TYPES) { i++; }
 
@@ -60,7 +60,7 @@ void qjs_glue(qjs::Context::Module& m) {
 
     m.class_<::test>("test")
             //.base<::base_test>()
-            .constructor<::int32_t, bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &>("Test")
+            .constructor<::int32_t, bool, ::int32_t, double, qjs::detail::qjspp_ptr<test>, qjs::detail::qjspp_ptr<test> const &, ::std::string, ::std::string const &>("Test")
             .constructor<::int32_t>("TestSimple")
             .fun<&::test::fi>("fi") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
             .fun<&::test::fb>("fb") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
@@ -140,8 +140,8 @@ int main()
         assert((int)yyy == 13);
 
         auto f = context.eval("q.fi.bind(q)").as<std::function<int32_t(TYPES)>>();
-        int zzz = f(false, 1, 0., context.eval("q").as<std::shared_ptr<test>>(),
-                    context.eval("t").as<std::shared_ptr<test>>(), "test string", std::string{"test"});
+        int zzz = f(false, 1, 0., context.eval("q").as<qjs::detail::qjspp_ptr<test>>(),
+                    context.eval("t").as<qjs::detail::qjspp_ptr<test>>(), "test string", std::string{"test"});
         assert(zzz == 19);
 
     }
