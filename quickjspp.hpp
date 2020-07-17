@@ -459,9 +459,13 @@ struct js_traits<ctor_wrapper<T, Args...>>
 
             if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
             {
+#if defined(__cpp_rtti)
+                // automatically register class on first use (no prototype)
                 js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
-                //JS_ThrowTypeError(ctx, "quickjspp: Class %s is not registered", typeid(T).name());
-                //return JS_EXCEPTION;
+#else
+                JS_ThrowTypeError(ctx, "quickjspp ctor_wrapper<T>::wrap: Class is not registered");
+                return JS_EXCEPTION;
+#endif
             }
 
             auto proto = JS_GetPropertyStr(ctx, this_value, "prototype");
@@ -543,9 +547,13 @@ struct js_traits<std::shared_ptr<T>>
     {
         if(QJSClassId == 0) // not registered
         {
+#if defined(__cpp_rtti)
+            // automatically register class on first use (no prototype)
             register_class(ctx, typeid(T).name());
-            //JS_ThrowTypeError(ctx, "quickjspp: Class %s is not registered", typeid(T).name());
-            //return JS_EXCEPTION;
+#else
+            JS_ThrowTypeError(ctx, "quickjspp std::shared_ptr<T>::wrap: Class is not registered");
+            return JS_EXCEPTION;
+#endif
         }
         auto jsobj = JS_NewObjectClass(ctx, QJSClassId);
         if(JS_IsException(jsobj))
@@ -580,9 +588,12 @@ struct js_traits<T *>
     {
         if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
         {
+#if defined(__cpp_rtti)
             js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
-            //JS_ThrowTypeError(ctx, "quickjspp: Class %s is not registered", typeid(T).name());
-            //return JS_EXCEPTION;
+#else
+            JS_ThrowTypeError(ctx, "quickjspp js_traits<T *>::wrap: Class is not registered");
+            return JS_EXCEPTION;
+#endif
         }
         auto jsobj = JS_NewObjectClass(ctx, js_traits<std::shared_ptr<T>>::QJSClassId);
         if(JS_IsException(jsobj))
