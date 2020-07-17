@@ -16,43 +16,7 @@
 
 namespace qjs {
 
-/** A custom allocator that uses js_malloc_rt and js_free_rt
- */
-template <typename T>
-struct allocator
-{
-    JSRuntime * rt;
-    using value_type = T;
-    using propagate_on_container_move_assignment = std::true_type;
-    using propagate_on_container_copy_assignment = std::true_type;
 
-    constexpr allocator(JSRuntime * rt) noexcept : rt{rt}
-    {}
-
-    allocator(JSContext * ctx) noexcept : rt{JS_GetRuntime(ctx)}
-    {}
-
-    template <class U>
-    constexpr allocator(const allocator<U>& other) noexcept : rt{other.rt}
-    {}
-
-    [[nodiscard]] T * allocate(std::size_t n)
-    {
-        if(auto p = static_cast<T *>(js_malloc_rt(rt, n * sizeof(T)))) return p;
-        throw std::bad_alloc();
-    }
-
-    void deallocate(T * p, std::size_t) noexcept
-    { js_free_rt(rt, p); }
-
-    template <class U>
-    bool operator ==(const allocator<U>& other) const
-    { return rt == other.rt; }
-
-    template <class U>
-    bool operator !=(const allocator<U>& other) const
-    { return rt != other.rt; }
-};
 /** Exception type.
  * Indicates that exception has occured in JS context.
  */
@@ -455,8 +419,6 @@ struct js_traits<ctor_wrapper<T, Args...>>
         return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                         JSValueConst * argv) noexcept -> JSValue {
 
-            std::shared_ptr<T> ptr =  std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argv));
-
             if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
             {
 #if defined(__cpp_rtti)
@@ -476,13 +438,8 @@ struct js_traits<ctor_wrapper<T, Args...>>
             if (JS_IsException(jsobj))
                 return jsobj;
 
-            //auto pptr = new std::shared_ptr<T>(std::move(ptr));
-            auto alloc = allocator<std::shared_ptr<T>>{ctx};
-            using atraits = std::allocator_traits<decltype(alloc)>;
-            auto pptr = atraits::allocate(alloc, 1);
-            atraits::construct(alloc, pptr, std::move(ptr));
-
-            JS_SetOpaque(jsobj, pptr);
+            std::shared_ptr<T> ptr =  std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argv));
+            JS_SetOpaque(jsobj, new std::shared_ptr<T>(std::move(ptr)));
             return jsobj;
 
             // return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
@@ -522,12 +479,7 @@ struct js_traits<std::shared_ptr<T>>
                     // destructor
                     [](JSRuntime * rt, JSValue obj) noexcept {
                         auto pptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque(obj, QJSClassId));
-                        assert(pptr);
-                        //delete pptr;
-                        auto alloc = allocator<std::shared_ptr<T>>{rt};
-                        using atraits = std::allocator_traits<decltype(alloc)>;
-                        atraits::destroy(alloc, pptr);
-                        atraits::deallocate(alloc, pptr, 1);
+                        delete pptr;
                     }
             };
             int e = JS_NewClass(rt, QJSClassId, &def);
@@ -557,15 +509,9 @@ struct js_traits<std::shared_ptr<T>>
         }
         auto jsobj = JS_NewObjectClass(ctx, QJSClassId);
         if(JS_IsException(jsobj))
-        {
             return jsobj;
-        }
-        //auto pptr = new std::shared_ptr<T>(std::move(ptr));
-        auto alloc = allocator<std::shared_ptr<T>>{ctx};
-        using atraits = std::allocator_traits<decltype(alloc)>;
-        auto pptr = atraits::allocate(alloc, 1);
-        atraits::construct(alloc, pptr, std::move(ptr));
 
+        auto pptr = new std::shared_ptr<T>(std::move(ptr));
         JS_SetOpaque(jsobj, pptr);
         return jsobj;
     }
@@ -597,15 +543,10 @@ struct js_traits<T *>
         }
         auto jsobj = JS_NewObjectClass(ctx, js_traits<std::shared_ptr<T>>::QJSClassId);
         if(JS_IsException(jsobj))
-        {
             return jsobj;
-        }
-        //auto pptr = new std::shared_ptr<T>(ptr, [](T *){});
-        auto alloc = allocator<std::shared_ptr<T>>{ctx};
-        using atraits = std::allocator_traits<decltype(alloc)>;
-        auto pptr = atraits::allocate(alloc, 1);
-        atraits::construct(alloc, pptr, ptr, [](T *) {}); // shared_ptr with empty deleter
 
+        // shared_ptr with empty deleter since we don't own T*
+        auto pptr = new std::shared_ptr<T>(ptr, [](T *){});
         JS_SetOpaque(jsobj, pptr);
         return jsobj;
     }
@@ -994,9 +935,9 @@ public:
         const char * name;
 
         using nvp = std::pair<const char *, Value>;
-        std::vector<nvp, allocator<nvp>> exports;
+        std::vector<nvp> exports;
     public:
-        Module(JSContext * ctx, const char * name) : ctx(ctx), name(name), exports(JS_GetRuntime(ctx))
+        Module(JSContext * ctx, const char * name) : ctx(ctx), name(name)
         {
             m = JS_NewCModule(ctx, name, [](JSContext * ctx, JSModuleDef * m) noexcept {
                 auto& context = Context::get(ctx);
@@ -1157,7 +1098,7 @@ public:
 
     };
 
-    std::vector<Module, allocator<Module>> modules;
+    std::vector<Module> modules;
 private:
     void init()
     {
@@ -1169,7 +1110,7 @@ public:
     Context(Runtime& rt) : Context(rt.rt)
     {}
 
-    Context(JSRuntime * rt) : modules{rt}
+    Context(JSRuntime * rt)
     {
         ctx = JS_NewContext(rt);
         if(!ctx)
@@ -1177,7 +1118,7 @@ public:
         init();
     }
 
-    Context(JSContext * ctx) : ctx{ctx}, modules{ctx}
+    Context(JSContext * ctx) : ctx{ctx}
     {
         init();
     }
