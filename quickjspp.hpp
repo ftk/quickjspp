@@ -1214,14 +1214,14 @@ struct js_traits<Value>
     }
 };
 
-/** Convert to/from std::function
+/** Convert to/from std::function. Actually accepts/returns callable object that is compatible with function<R (Args...)>.
  * @tparam R return type
  * @tparam Args argument types
  */
 template <typename R, typename... Args>
 struct js_traits<std::function<R(Args...)>>
 {
-    static std::function<R(Args...)> unwrap(JSContext * ctx, JSValueConst fun_obj)
+    static auto unwrap(JSContext * ctx, JSValueConst fun_obj)
     {
         return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
             const int argc = sizeof...(Args);
