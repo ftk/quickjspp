@@ -805,11 +805,14 @@ public:
 
     bool isError() const { return JS_IsError(ctx, v); }
 
-    /** Conversion helper function. Both value.as<T>() and static_cast<T>(value) are supported */
+    /** Conversion helper function: value.as<T>()
+     * @tparam T type to convert to
+     * @return type returned by js_traits<std::decay_t<T>>::unwrap that should be implicitly convertible to T
+     * */
     template <typename T>
-    T as() const { return js_traits<std::decay_t<T>>::unwrap(ctx, v); }
+    auto as() const { return js_traits<std::decay_t<T>>::unwrap(ctx, v); }
 
-    /** Explicit conversion to any type */
+    /** Explicit conversion: static_cast<T>(value) or (T)value */
     template <typename T>
     explicit operator T() const { return as<T>(); }
 
