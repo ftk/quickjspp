@@ -526,9 +526,11 @@ struct js_traits<std::shared_ptr<T>>
     }
 };
 
-// T * - non-owning pointer
+/** Conversions for non-owning pointers to class T.
+ * @tparam T class type
+ */
 template <class T>
-struct js_traits<T *>
+struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
 {
     static JSValue wrap(JSContext * ctx, T * ptr)
     {
