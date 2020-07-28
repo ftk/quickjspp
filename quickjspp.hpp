@@ -1264,20 +1264,17 @@ struct js_traits<std::vector<T>>
 {
     static JSValue wrap(JSContext * ctx, const std::vector<T>& arr) noexcept
     {
-        auto jsarray = Value{ctx, JS_NewArray(ctx)};
-        if(JS_IsException(jsarray.v))
-            return jsarray.v;
-
         try
         {
+            auto jsarray = Value{ctx, JS_NewArray(ctx)};
             for(uint32_t i = 0; i < (uint32_t) arr.size(); i++)
                 jsarray[i] = arr[i];
+            return jsarray.release();
         }
         catch(exception)
         {
             return JS_EXCEPTION;
         }
-        return std::move(jsarray);
     }
 
     static std::vector<T> unwrap(JSContext * ctx, JSValueConst jsarr)
