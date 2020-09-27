@@ -370,11 +370,11 @@ struct js_traits<fwrapper<F, PassThis>>
     }
 };
 
-/** Conversion to JSValue for class member function in fwrapper. */
-template <typename R, class T, typename... Args, R (T::*F)(Args...)>
-struct js_traits<fwrapper<F>>
+/** Conversion to JSValue for class member function in fwrapper. PassThis is ignored and treated as true */
+template <typename R, class T, typename... Args, R (T::*F)(Args...), bool PassThis/*=ignored*/>
+struct js_traits<fwrapper<F, PassThis>>
 {
-    static JSValue wrap(JSContext * ctx, fwrapper<F> fw) noexcept
+    static JSValue wrap(JSContext * ctx, fwrapper<F, PassThis> fw) noexcept
     {
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
@@ -384,11 +384,11 @@ struct js_traits<fwrapper<F>>
     }
 };
 
-/** Conversion to JSValue for const class member function in fwrapper. */
-template <typename R, class T, typename... Args, R (T::*F)(Args...) const>
-struct js_traits<fwrapper<F>>
+/** Conversion to JSValue for const class member function in fwrapper. PassThis is ignored and treated as true */
+template <typename R, class T, typename... Args, R (T::*F)(Args...) const, bool PassThis/*=ignored*/>
+struct js_traits<fwrapper<F, PassThis>>
 {
-    static JSValue wrap(JSContext * ctx, fwrapper<F> fw) noexcept
+    static JSValue wrap(JSContext * ctx, fwrapper<F, PassThis> fw) noexcept
     {
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
@@ -855,34 +855,54 @@ public:
         return *this;
     }
 
+    // add_getter_setter<&T::get_member, &T::set_member>("member");
+    template <auto FGet, auto FSet>
+    Value& add_getter_setter(const char * name)
+    {
+        auto prop = JS_NewAtom(ctx, name);
+        using fgetter = fwrapper<FGet, true>;
+        using fsetter = fwrapper<FSet, true>;
+        int ret = JS_DefinePropertyGetSet(ctx, v, prop,
+                                      js_traits<fgetter>::wrap(ctx, fgetter{name}),
+                                      js_traits<fsetter>::wrap(ctx, fsetter{name}),
+                                      JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_ENUMERABLE
+        );
+        JS_FreeAtom(ctx, prop);
+        if(ret < 0)
+            throw exception{};
+        return *this;
+    }
+
+    // add_getter<&T::get_member>("member");
+    template <auto FGet>
+    Value& add_getter(const char * name)
+    {
+        auto prop = JS_NewAtom(ctx, name);
+        using fgetter = fwrapper<FGet, true>;
+        int ret = JS_DefinePropertyGetSet(ctx, v, prop,
+                                          js_traits<fgetter>::wrap(ctx, fgetter{name}),
+                                          JS_UNDEFINED,
+                                          JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE
+        );
+        JS_FreeAtom(ctx, prop);
+        if(ret < 0)
+            throw exception{};
+        return *this;
+    }
+
     // add<&T::member>("member");
     template <auto M>
     std::enable_if_t<std::is_member_object_pointer_v<decltype(M)>, Value&>
     add(const char * name)
     {
-        auto prop = JS_NewAtom(ctx, name);
-        using fgetter = fwrapper<detail::get_set<M>::get, true>;
-        int ret;
         if constexpr (detail::get_set<M>::is_const::value)
         {
-            ret = JS_DefinePropertyGetSet(ctx, v, prop,
-                                          js_traits<fgetter>::wrap(ctx, fgetter{name}),
-                                          JS_UNDEFINED,
-                                          JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE
-            );
-        } else
-        {
-            using fsetter = fwrapper<detail::get_set<M>::set, true>;
-            ret = JS_DefinePropertyGetSet(ctx, v, prop,
-                                          js_traits<fgetter>::wrap(ctx, fgetter{name}),
-                                          js_traits<fsetter>::wrap(ctx, fsetter{name}),
-                                          JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_ENUMERABLE
-            );
+            return add_getter<detail::get_set<M>::get>(name);
         }
-        JS_FreeAtom(ctx, prop);
-        if(ret < 0)
-            throw exception{};
-        return *this;
+        else
+        {
+            return add_getter_setter<detail::get_set<M>::get, detail::get_set<M>::set>(name);
+        }
     }
 
     std::string toJSON(const Value& replacer = Value{nullptr, JS_UNDEFINED}, const Value& space = Value{nullptr, JS_UNDEFINED})
@@ -1053,6 +1073,16 @@ public:
             class_registrar& fun(const char * name)
             {
                 prototype.add<F>(name);
+                return *this;
+            }
+
+            template <auto FGet, auto FSet = nullptr>
+            class_registrar& property(const char * name)
+            {
+                if constexpr (FSet == nullptr)
+                    prototype.add_getter<FGet>(name);
+                else
+                    prototype.add_getter_setter<FGet, FSet>(name);
                 return *this;
             }
 

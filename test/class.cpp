@@ -43,6 +43,10 @@ public:
     const std::string& fs(TYPES) { i++; return s; }
     void f(TYPES) { i++; }
 
+    double get_d()  { i++; return d; }
+    double set_d(double new_d) { i++; d = new_d; return d; }
+
+
     static void fstatic(TYPES) {}
 };
 
@@ -74,6 +78,8 @@ void qjs_glue(qjs::Context::Module& m) {
             .fun<&::test::d>("d") // double
             .fun<&::test::spt>("spt") // ::std::shared_ptr<test>
             .fun<&::test::s>("s") // ::std::string
+            .property<&test::get_d, &test::set_d>("property_rw")
+            .property<&test::get_d>("property_ro")
             ;
 } // qjs_glue
 
@@ -144,6 +150,11 @@ int main()
                     context.eval("t").as<std::shared_ptr<test>>(), "test string", std::string{"test"});
         assert(zzz == 19);
 
+        zzz = (int)context.eval("q.property_rw = q.property_ro - q.property_rw + 1;"
+                               "assert(q.property_ro === 1);"
+                               "q.i"
+                               );
+        assert(zzz == 23);
     }
     catch(exception)
     {
