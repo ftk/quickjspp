@@ -1079,7 +1079,7 @@ public:
             template <auto FGet, auto FSet = nullptr>
             class_registrar& property(const char * name)
             {
-                if constexpr (FSet == nullptr)
+                if /*constexpr*/ (FSet == nullptr)
                     prototype.add_getter<FGet>(name);
                 else
                     prototype.add_getter_setter<FGet, FSet>(name);
