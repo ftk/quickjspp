@@ -37,6 +37,7 @@ endif()
 
 add_library(quickjs ${quickjs_src})
 target_compile_definitions(quickjs PRIVATE ${quickjs_def})
+target_include_directories(quickjs INTERFACE ${PROJECT_SOURCE_DIR}/quickjs/)
 target_link_libraries(quickjs PUBLIC ${quickjs_extra_libs})
 if (WIN32)
   target_compile_definitions(quickjs PRIVATE 
