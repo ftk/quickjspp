@@ -22,7 +22,7 @@ elseif (WIN32 AND NOT(MSYS OR MINGW))
   set(quickjs_extra_libs PThreads4W::PThreads4W)
 endif()
 
-file(STRINGS quickjs/VERSION version)
+file(STRINGS ${PROJECT_SOURCE_DIR}/quickjs/VERSION version)
 
 set(quickjs_dir ${PROJECT_SOURCE_DIR}/quickjs)
 set(quickjs_src ${quickjs_dir}/quickjs.c ${quickjs_dir}/libbf.c ${quickjs_dir}/libunicode.c ${quickjs_dir}/libregexp.c ${quickjs_dir}/cutils.c ${quickjs_dir}/quickjs-libc.c)
