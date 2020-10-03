@@ -59,6 +59,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: recursive
     - name: preconfigure
       run: ${{ matrix.preconfigure }}
     - name: configure
