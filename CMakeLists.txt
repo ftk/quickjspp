@@ -16,7 +16,7 @@ endif()
 if(UNIX)
   find_package(Threads)
   set(quickjs_extra_libs ${CMAKE_DL_LIBS} m Threads::Threads)
-elseif (WIN32)
+elseif (WIN32 AND NOT(MSYS OR MINGW))
   # Run vcpkg install pthreads to install PThreads4W support
   find_package(pthreads)
   set(quickjs_extra_libs PThreads4W::PThreads4W)
@@ -30,7 +30,7 @@ set(quickjs_def CONFIG_VERSION="${version}" CONFIG_BIGNUM)
 
 if (UNIX)
   set(quickjs_def "${quickjs_def}" _GNU_SOURCE)
-elseif (WIN32)
+elseif (WIN32 AND NOT(MSYS OR MINGW))
   add_library(quickjs_win32_compat win32_compat/time.cpp)
   target_include_directories(quickjs_win32_compat INTERFACE ${PROJECT_SOURCE_DIR}/win32_compat)
 endif()
@@ -39,7 +39,7 @@ add_library(quickjs ${quickjs_src})
 target_compile_definitions(quickjs PRIVATE ${quickjs_def})
 target_include_directories(quickjs INTERFACE ${PROJECT_SOURCE_DIR}/quickjs/)
 target_link_libraries(quickjs PUBLIC ${quickjs_extra_libs})
-if (WIN32)
+if (WIN32 AND NOT(MSYS OR MINGW))
   target_compile_definitions(quickjs PRIVATE 
     ssize_t=SSIZE_T popen=_popen pclose=_pclose
     _CRT_SECURE_NO_WARNINGS
