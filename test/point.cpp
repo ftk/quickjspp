@@ -1,4 +1,4 @@
-#include "quickjspp.hpp"
+#include <quickjspp.hpp>
 #include <iostream>
 #include <cmath>
 

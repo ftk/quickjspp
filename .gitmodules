@@ -1,0 +1,4 @@
+[submodule "quickjs"]
+	path = quickjs
+	url = https://github.com/bellard/quickjs
+	branch = master
