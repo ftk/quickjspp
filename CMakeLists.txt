@@ -27,7 +27,6 @@ endif()
 file(STRINGS ${PROJECT_SOURCE_DIR}/quickjs/VERSION version)
 
 set(quickjs_dir ${PROJECT_SOURCE_DIR}/quickjs)
-set(quickjs_src ${quickjs_dir}/quickjs.c ${quickjs_dir}/libbf.c ${quickjs_dir}/libunicode.c ${quickjs_dir}/libregexp.c ${quickjs_dir}/cutils.c ${quickjs_dir}/quickjs-libc.c)
 set(quickjs_def "")
 
 if (QUICKJS_BIGNUM_ENABLE)
@@ -47,21 +46,26 @@ else()
 set(quickjs_def ${quickjs_def} CONFIG_VERSION="${version}")
 endif()
 
-add_library(quickjs ${quickjs_src})
+add_library(libbf ${quickjs_dir}/libbf.c)
+if (QUICKJS_ENABLE_AVX2)
+  target_compile_definitions(libbf PUBLIC __AVX2__)
+  # https://stackoverflow.com/a/5101557/3289081
+  set_target_properties(libbf PROPERTIES COMPILE_FLAGS "/arch:AVX2 /Oi")
+endif()
+
+add_library(libunicode ${quickjs_dir}/libunicode.c)
+add_library(libregexp ${quickjs_dir}/libregexp.c)
+add_library(cutils ${quickjs_dir}/cutils.c)
+
+add_library(quickjs ${quickjs_dir}/quickjs.c ${quickjs_dir}/quickjs-libc.c)
 target_compile_definitions(quickjs PRIVATE ${quickjs_def})
 target_include_directories(quickjs INTERFACE ${PROJECT_SOURCE_DIR}/quickjs/)
-target_link_libraries(quickjs PUBLIC ${quickjs_extra_libs})
+target_link_libraries(quickjs PUBLIC ${quickjs_extra_libs} PRIVATE libbf libunicode libregexp cutils)
 if (WIN32 AND NOT(MSYS OR MINGW))
   target_compile_definitions(quickjs PRIVATE 
     ssize_t=SSIZE_T popen=_popen pclose=_pclose
     _CRT_SECURE_NO_WARNINGS
   )
-
-  if (QUICKJS_ENABLE_AVX2)
-    target_compile_definitions(quickjs PUBLIC __AVX2__)
-    # https://stackoverflow.com/a/5101557/3289081
-    set_target_properties(quickjs PROPERTIES COMPILE_FLAGS "/arch:AVX2 /Oi")
-  endif()
   target_link_libraries(quickjs PRIVATE quickjs_win32_compat)
 endif()
 
