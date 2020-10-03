@@ -3,9 +3,11 @@ project(quickjspp)
 
 set(CMAKE_CXX_STANDARD 17)
 
+option(QUICKJS_BIGNUM_ENABLE "Should bignum support be enabled" ON)
+option(QUICKJS_ENABLE_AVX2 "Should use AVX2 as a consideration in compiling" ON)
+
 if (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>")
-
   if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug") )
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
   endif()
@@ -26,7 +28,11 @@ file(STRINGS ${PROJECT_SOURCE_DIR}/quickjs/VERSION version)
 
 set(quickjs_dir ${PROJECT_SOURCE_DIR}/quickjs)
 set(quickjs_src ${quickjs_dir}/quickjs.c ${quickjs_dir}/libbf.c ${quickjs_dir}/libunicode.c ${quickjs_dir}/libregexp.c ${quickjs_dir}/cutils.c ${quickjs_dir}/quickjs-libc.c)
-set(quickjs_def CONFIG_BIGNUM)
+set(quickjs_def "")
+
+if (QUICKJS_BIGNUM_ENABLE)
+  set(quickjs_def ${quickjs_def} CONFIG_BIGNUM)
+endif()
 
 if (UNIX)
   set(quickjs_def ${quickjs_def} _GNU_SOURCE)
@@ -50,8 +56,15 @@ if (WIN32 AND NOT(MSYS OR MINGW))
     ssize_t=SSIZE_T popen=_popen pclose=_pclose
     _CRT_SECURE_NO_WARNINGS
   )
+
+  if (QUICKJS_ENABLE_AVX2)
+    target_compile_definitions(quickjs PUBLIC __AVX2__)
+    # https://stackoverflow.com/a/5101557/3289081
+    set_target_properties(quickjs PROPERTIES COMPILE_FLAGS "/arch:AVX2 /Oi")
+  endif()
   target_link_libraries(quickjs PRIVATE quickjs_win32_compat)
 endif()
+
 
 add_library(quickjs-dumpleaks INTERFACE)
 target_link_libraries(quickjs-dumpleaks INTERFACE quickjs)
