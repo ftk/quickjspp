@@ -1,7 +1,7 @@
 #pragma once
 
-#include "quickjs/quickjs.h"
-#include "quickjs/quickjs-libc.h"
+#include <quickjs.h>
+#include <quickjs-libc.h>
 
 #include <vector>
 #include <string_view>

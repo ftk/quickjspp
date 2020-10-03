@@ -1,4 +1,4 @@
-#include "quickjspp.hpp"
+#include <quickjspp.hpp>
 #include <iostream>
 
 
@@ -156,7 +156,7 @@ int main()
                                );
         assert(zzz == 23);
     }
-    catch(exception)
+    catch(qjs::exception)
     {
         auto exc = context.getException();
         std::cerr << (exc.isError() ? "Error: " : "Throw: ") << (std::string)exc << std::endl;

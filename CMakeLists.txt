@@ -1,16 +1,91 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.15)
 project(quickjspp)
 
 set(CMAKE_CXX_STANDARD 17)
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 
-if(CMAKE_COMPILER_IS_GNUCC)
-    add_compile_options(-Wall -Wno-unused-parameter)
+option(QUICKJS_BIGNUM_ENABLE "Should bignum support be enabled" ON)
+option(QUICKJS_ENABLE_AVX2 "Should use AVX2 as a consideration in compiling" ON)
+
+if (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>")
+  if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug") )
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+  endif()
+elseif (CMAKE_COMPILER_IS_GNUCC)
+  add_compile_options(-Wall -Wno-unused-parameter)
 endif()
 
-add_subdirectory(quickjs)
-add_executable(qjs qjs.cpp)
-target_link_libraries(qjs quickjs)
+if(UNIX)
+  find_package(Threads)
+  set(quickjs_extra_libs ${CMAKE_DL_LIBS} m Threads::Threads)
+elseif (WIN32 AND NOT(MSYS OR MINGW))
+  # Run vcpkg install pthreads to install PThreads4W support
+  find_package(pthreads)
+  set(quickjs_extra_libs PThreads4W::PThreads4W)
+endif()
 
-enable_testing()
-add_subdirectory(test)
+file(STRINGS ${PROJECT_SOURCE_DIR}/quickjs/VERSION version)
+
+set(quickjs_dir ${PROJECT_SOURCE_DIR}/quickjs)
+set(quickjs_def "")
+
+if (QUICKJS_BIGNUM_ENABLE)
+  set(quickjs_def ${quickjs_def} CONFIG_BIGNUM)
+endif()
+
+if (UNIX)
+  set(quickjs_def ${quickjs_def} _GNU_SOURCE)
+elseif (WIN32 AND NOT(MSYS OR MINGW))
+  add_library(quickjs_win32_compat win32_compat/time.cpp)
+  target_include_directories(quickjs_win32_compat INTERFACE ${PROJECT_SOURCE_DIR}/win32_compat)
+endif()
+
+if (MSYS OR MINGW)
+set(quickjs_def ${quickjs_def} CONFIG_VERSION="\"${version}\"")
+else()
+set(quickjs_def ${quickjs_def} CONFIG_VERSION="${version}")
+endif()
+
+add_library(libbf ${quickjs_dir}/libbf.c)
+if (QUICKJS_ENABLE_AVX2)
+  target_compile_definitions(libbf PUBLIC __AVX2__)
+  # https://stackoverflow.com/a/5101557/3289081
+  set_target_properties(libbf PROPERTIES COMPILE_FLAGS "/arch:AVX2 /Oi")
+endif()
+
+add_library(libunicode ${quickjs_dir}/libunicode.c)
+add_library(libregexp ${quickjs_dir}/libregexp.c)
+add_library(cutils ${quickjs_dir}/cutils.c)
+
+add_library(quickjs ${quickjs_dir}/quickjs.c ${quickjs_dir}/quickjs-libc.c)
+target_compile_definitions(quickjs PRIVATE ${quickjs_def})
+target_include_directories(quickjs INTERFACE ${PROJECT_SOURCE_DIR}/quickjs/)
+target_link_libraries(quickjs PUBLIC ${quickjs_extra_libs} PRIVATE libbf libunicode libregexp cutils)
+if (WIN32 AND NOT(MSYS OR MINGW))
+  target_compile_definitions(quickjs PRIVATE 
+    ssize_t=SSIZE_T popen=_popen pclose=_pclose
+    _CRT_SECURE_NO_WARNINGS
+  )
+  target_link_libraries(quickjs PRIVATE quickjs_win32_compat)
+endif()
+
+
+add_library(quickjs-dumpleaks INTERFACE)
+target_link_libraries(quickjs-dumpleaks INTERFACE quickjs)
+target_compile_definitions(quickjs-dumpleaks INTERFACE DUMP_LEAKS=1)
+
+add_library(quickjspp INTERFACE)
+target_include_directories(quickjspp INTERFACE ${PROJECT_SOURCE_DIR}/include/)
+target_link_libraries(quickjspp INTERFACE quickjs)
+
+add_library(quickjspp-dumpleaks INTERFACE)
+target_include_directories(quickjspp-dumpleaks INTERFACE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(quickjspp-dumpleaks INTERFACE quickjs-dumpleaks)
+
+add_executable(qjs qjs.cpp)
+target_link_libraries(qjs quickjspp)
+
+if (BUILD_TESTING)
+  enable_testing()
+  add_subdirectory(test)
+endif()
