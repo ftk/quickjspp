@@ -64,7 +64,7 @@ jobs:
     - name: preconfigure
       run: ${{ matrix.preconfigure }}
     - name: configure
-      run: cmake -S . -B build_dir -Wdev -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_C_FLAGS="${{ matrix.cflags }}" -DCMAKE_CXX_FLAGS="${{ matrix.cflags }}" -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cflags }}" ${{ matrix.cmake_opts }}
+      run: cmake -S . -B build_dir -Wdev -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_C_FLAGS="${{ matrix.cflags }}" -DCMAKE_CXX_FLAGS="${{ matrix.cflags }}" -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cflags }}" ${{ matrix.cmake_opts }} -DBUILD_TEST=1
     - name: build
       run: cmake --build build_dir --verbose
     - name: test
