@@ -26,13 +26,19 @@ file(STRINGS ${PROJECT_SOURCE_DIR}/quickjs/VERSION version)
 
 set(quickjs_dir ${PROJECT_SOURCE_DIR}/quickjs)
 set(quickjs_src ${quickjs_dir}/quickjs.c ${quickjs_dir}/libbf.c ${quickjs_dir}/libunicode.c ${quickjs_dir}/libregexp.c ${quickjs_dir}/cutils.c ${quickjs_dir}/quickjs-libc.c)
-set(quickjs_def CONFIG_VERSION="${version}" CONFIG_BIGNUM)
+set(quickjs_def CONFIG_BIGNUM)
 
 if (UNIX)
-  set(quickjs_def "${quickjs_def}" _GNU_SOURCE)
+  set(quickjs_def ${quickjs_def} _GNU_SOURCE)
 elseif (WIN32 AND NOT(MSYS OR MINGW))
   add_library(quickjs_win32_compat win32_compat/time.cpp)
   target_include_directories(quickjs_win32_compat INTERFACE ${PROJECT_SOURCE_DIR}/win32_compat)
+endif()
+
+if (MSYS OR MINGW)
+set(quickjs_def ${quickjs_def} CONFIG_VERSION="\"${version}\"")
+else()
+set(quickjs_def ${quickjs_def} CONFIG_VERSION="${version}")
 endif()
 
 add_library(quickjs ${quickjs_src})
