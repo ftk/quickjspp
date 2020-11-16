@@ -1027,7 +1027,7 @@ public:
         template <typename F>
         Module& function(const char * name, F&& f)
         {
-            return add(name, js_traits<decltype(std::function{std::forward<F>(f)})>::wrap(std::forward<F>(f)));
+            return add(name, js_traits<decltype(std::function{std::forward<F>(f)})>::wrap(ctx, std::forward<F>(f)));
         }
 
         // class register wrapper
@@ -1258,14 +1258,29 @@ struct js_traits<std::function<R(Args...)>>
 {
     static auto unwrap(JSContext * ctx, JSValueConst fun_obj)
     {
-        return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
-            const int argc = sizeof...(Args);
-            JSValue argv[argc];
-            detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
-            JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, argc, const_cast<JSValueConst *>(argv));
-            for(int i = 0; i < argc; i++) JS_FreeValue(jsfun_obj.ctx, argv[i]);
-            return detail::unwrap_free<R>(jsfun_obj.ctx, result);
-        };
+        const int argc = sizeof...(Args);
+        if constexpr (argc == 0) {
+            return[jsfun_obj = Value{ ctx, JS_DupValue(ctx, fun_obj) }]()->R {
+                JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, 0, nullptr);
+                if (JS_IsException(result)) {
+                    JS_FreeValue(jsfun_obj.ctx, result);
+                    throw exception{};
+                }
+                return detail::unwrap_free<R>(jsfun_obj.ctx, result);
+            };
+        } else {
+            return[jsfun_obj = Value{ ctx, JS_DupValue(ctx, fun_obj) }](Args&& ... args)->R {
+                JSValue argv[argc];
+                detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
+                JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, argc, const_cast<JSValueConst*>(argv));
+                for (int i = 0; i < argc; i++) JS_FreeValue(jsfun_obj.ctx, argv[i]);
+                if (JS_IsException(result)) {
+                    JS_FreeValue(jsfun_obj.ctx, result);
+                    throw exception{};
+                }
+                return detail::unwrap_free<R>(jsfun_obj.ctx, result);
+            };
+        }
     }
 
     /** Convert from function object functor to JSValue.
