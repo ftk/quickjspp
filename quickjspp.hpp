@@ -1079,7 +1079,11 @@ public:
             template <auto FGet, auto FSet = nullptr>
             class_registrar& property(const char * name)
             {
-                if /*constexpr*/ (FSet == nullptr)
+#if defined(__GNUC__) && __GNUC__ <= 8 // gcc-8 workaround
+                if(FSet == nullptr)
+#else
+                if constexpr (FSet == nullptr)
+#endif
                     prototype.add_getter<FGet>(name);
                 else
                     prototype.add_getter_setter<FGet, FSet>(name);
