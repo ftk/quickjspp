@@ -5,11 +5,11 @@ set(quickjs_src quickjs.c libbf.c libunicode.c libregexp.c cutils.c quickjs-libc
 
 
 add_library(quickjs ${quickjs_src})
-target_compile_definitions(quickjs PRIVATE CONFIG_BIGNUM)
+target_compile_definitions(quickjs PRIVATE CONFIG_BIGNUM _GNU_SOURCE)
 target_compile_definitions(quickjs PUBLIC JS_STRICT_NAN_BOXING)
 
 add_library(quickjs-dumpleaks ${quickjs_src})
-target_compile_definitions(quickjs-dumpleaks PRIVATE CONFIG_BIGNUM DUMP_LEAKS=1)
+target_compile_definitions(quickjs-dumpleaks PRIVATE CONFIG_BIGNUM _GNU_SOURCE DUMP_LEAKS=1)
 target_compile_definitions(quickjs-dumpleaks PUBLIC JS_STRICT_NAN_BOXING)
 
 if(UNIX)
