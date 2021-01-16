@@ -41,13 +41,17 @@ int main()
         test_num<uint32_t>(context);
 
         // int64 is represented as double...
-        test_conv<int64_t>(context, -(1ll << 52));
-        test_conv<int64_t>(context, -(1ll << 52) + 1);
-        test_conv<int64_t>(context, (1ll << 52));
-        test_conv<int64_t>(context, (1ll << 52) - 1);
-        test_conv<uint64_t>(context, (1ll << 52));
-        test_conv<uint64_t>(context, (1ll << 52) - 1);
+        test_conv<int64_t>(context, -(1ll << 53));
+        test_conv<int64_t>(context, -(1ll << 53) + 1);
+        test_conv<int64_t>(context, (1ll << 53));
+        test_conv<int64_t>(context, (1ll << 53) - 1);
 
+        // if JSValue is typedefed to uint64_t trying to convert to/from uint64_t will result in segfault
+        if(!std::is_same_v<JSValue, uint64_t>)
+        {
+            test_conv<uint64_t>(context, (1ll << 52));
+            test_conv<uint64_t>(context, (1ll << 52) - 1);
+        }
 
         test_num<double>(context);
         //test_num<float>(context);
