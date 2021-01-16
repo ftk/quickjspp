@@ -1274,6 +1274,7 @@ struct js_traits<std::function<R(Args...)>>
         else 
         {
             return[jsfun_obj = Value{ ctx, JS_DupValue(ctx, fun_obj) }](Args&& ... args)->R {
+                const int argc = sizeof...(Args);
                 JSValue argv[argc];
                 detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
                 JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, argc, const_cast<JSValueConst*>(argv));
