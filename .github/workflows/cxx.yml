@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [linux-gcc, linux-clang, linux-gcc9, linux-clang9, windows-gcc, linux-gcc-ubsan, linux-gcc-asan, linux-gcc-32, linux-gcc-x32]
+        compiler: [linux-gcc, linux-clang, linux-gcc9, linux-clang9, windows-gcc, windows-msvc, linux-gcc-ubsan, linux-gcc-asan, linux-gcc-32, linux-gcc-x32]
         build_type: [Debug]
         include:
           - compiler: linux-gcc
@@ -47,8 +47,8 @@ jobs:
             cmake_opts: -DCMAKE_C_COMPILER=clang-9 -DCMAKE_CXX_COMPILER=clang++-9
             #cflags: -stdlib=libc++
 
-#          - compiler: windows-msvs # not supported
-#            os: windows-latest
+          - compiler: windows-msvc
+            os: windows-latest
 
           - compiler: windows-gcc
             os: windows-2019
