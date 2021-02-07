@@ -13,6 +13,7 @@
 #include <tuple>
 #include <functional>
 #include <stdexcept>
+#include <variant>
 
 namespace qjs {
 
@@ -222,6 +223,108 @@ struct js_traits<const char *>
     }
 };
 
+/** Conversion from const std::variant */
+template <typename ... Ts>
+struct js_traits<std::variant<Ts...>>
+{
+    static JSValue wrap(JSContext * ctx, const std::variant<Ts...> &value) noexcept
+    {
+        return std::visit([](auto && value){
+            using T = std::decay_t<decltype(value)>;
+            return js_traits<T>::wrap(value);
+        }, value);
+    }
+
+
+    /* Useful type traits */
+    template<typename T> struct is_shared_ptr : std::false_type {};
+    template<typename T> struct is_shared_ptr<std::shared_ptr<T>> : std::true_type {};
+    template <typename T> struct is_string { static constexpr bool value = std::is_same_v<T, const char*> || std::is_same_v<std::decay_t<T>, std::string> || std::is_same_v<std::decay_t<T>, std::string_view>; };
+    template <typename T> struct is_boolean { static constexpr bool value = std::is_same_v<std::decay_t<T>, bool>; };
+    template <typename T> struct is_double { static constexpr bool value = std::is_same_v<std::decay_t<T>, double>;};
+
+    /** Attempt to match common types (integral, floating-point, string, etc.) */
+    template <template <typename R> typename Trait, typename U, typename ... Us>
+    static std::optional<std::variant<Ts...>> unwrapImpl(JSContext * ctx, JSValueConst v)
+    {
+        if constexpr (Trait<U>::value){
+            return js_traits<U>::unwrap(ctx, v);
+        }
+        if constexpr ((sizeof ... (Us)) > 0){
+            return unwrapImpl<Trait, Us...>(ctx, v);
+        }
+        return std::nullopt;
+    }
+
+    /** Attempt to match class ID with type */
+    template <typename U, typename ... Us>
+    static std::optional<std::variant<Ts...>> unwrapObj(JSContext * ctx, JSValueConst v)
+    {
+        if constexpr (is_shared_ptr<U>::value){
+            if (JS_GetClassID(v) == js_traits<U>::QJSClassId){
+                return js_traits<U>::unwrap(ctx, v);
+            }
+        }
+        if constexpr ((sizeof ... (Us)) > 0){
+            return unwrapObj<Us...>(ctx, v);
+        }
+        return std::nullopt;
+    }
+
+    /** Attempt to cast to types satisfying traits, ordered in terms of priority */
+    template <template <typename T> typename Trait, template <typename T> typename ... Traits>
+    static std::variant<Ts...> unwrapPriority(JSContext * ctx, JSValueConst v)
+    {
+        if (auto result = unwrapImpl<Trait, Ts...>(ctx, v)){
+            return *result;
+        }
+        if constexpr ((sizeof ... (Traits)) > 0){
+            return unwrapPriority<Traits...>(ctx, v);
+        }
+        throw exception{};
+    }
+
+
+    static std::variant<Ts...> unwrap(JSContext * ctx, JSValueConst v)
+    {
+        switch (JS_VALUE_GET_TAG(v))
+        {
+        case JS_TAG_STRING:
+            return unwrapPriority<is_string>(ctx, v);
+
+        case JS_TAG_FUNCTION_BYTECODE:
+            return unwrapPriority<std::is_function>(ctx, v);
+        case JS_TAG_OBJECT:
+            if (auto result = unwrapObj<Ts...>(ctx, v)){
+                return *result;
+            }
+            break;
+
+        case JS_TAG_INT: [[fallthrough]];
+        case JS_TAG_BIG_INT:
+            return unwrapPriority<std::is_integral, std::is_floating_point>(ctx, v);
+        case JS_TAG_BOOL:
+            return unwrapPriority<is_boolean, std::is_integral, std::is_floating_point>(ctx, v);
+
+        case JS_TAG_BIG_DECIMAL:[[fallthrough]];
+        case JS_TAG_BIG_FLOAT:[[fallthrough]];
+        case JS_TAG_FLOAT64:
+            return unwrapPriority<is_double, std::is_floating_point>(ctx, v);
+
+        case JS_TAG_SYMBOL: [[fallthrough]];
+        case JS_TAG_MODULE: [[fallthrough]];
+        case JS_TAG_NULL: [[fallthrough]];
+        case JS_TAG_UNDEFINED: [[fallthrough]];
+        case JS_TAG_UNINITIALIZED: [[fallthrough]];
+        case JS_TAG_CATCH_OFFSET: [[fallthrough]];
+        case JS_TAG_EXCEPTION: [[fallthrough]];
+        default:
+            break;
+        }
+
+        throw exception{};
+    }
+};
 
 namespace detail {
 

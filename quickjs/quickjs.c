@@ -53798,3 +53798,14 @@ void JS_AddIntrinsicTypedArrays(JSContext *ctx)
     JS_AddIntrinsicAtomics(ctx);
 #endif
 }
+
+JSClassID JS_GetClassID(JSValue v)
+{
+    JSObject *p;
+
+    if (JS_VALUE_GET_TAG(v) != JS_TAG_OBJECT)
+        return 0;
+    p = JS_VALUE_GET_OBJ(v);
+    assert(p != 0);
+    return p->class_id;
+}

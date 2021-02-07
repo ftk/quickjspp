@@ -493,6 +493,7 @@ typedef struct JSClassDef {
 } JSClassDef;
 
 JSClassID JS_NewClassID(JSClassID *pclass_id);
+JSClassID JS_GetClassID(JSValueConst v);
 int JS_NewClass(JSRuntime *rt, JSClassID class_id, const JSClassDef *class_def);
 int JS_IsRegisteredClass(JSRuntime *rt, JSClassID class_id);
 
