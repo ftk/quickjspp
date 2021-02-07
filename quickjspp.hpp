@@ -291,7 +291,7 @@ struct js_traits<std::variant<Ts...>>
     template <typename T>
     static bool isCompatible(JSContext * ctx, JSValueConst v){
         const char * type_name = typeid(T).name();
-        switch (v.tag)
+        switch (JS_VALUE_GET_TAG(v))
         {
         case JS_TAG_STRING:
             return is_string<T>::value;
@@ -337,8 +337,8 @@ struct js_traits<std::variant<Ts...>>
     static std::variant<Ts...> unwrapArray(JSContext * ctx, JSValueConst jsarr)
     {
         const auto length_ = JS_GetPropertyStr(ctx, jsarr, "length");
-        if (length_.tag != 0) throw exception{};
-        const auto length = length_.u.int32;
+        if (JS_VALUE_GET_TAG(length_) != 0) throw exception{};
+        const auto length = JS_VALUE_GET_INT(length_);
         auto firstElement = JS_GetPropertyUint32(ctx, jsarr, 0);
         if constexpr (is_vector<U>::value){
             if (isCompatible<std::decay_t<typename U::value_type>>(ctx, firstElement)){
