@@ -242,6 +242,10 @@ struct js_traits<std::variant<Ts...>>
     template <typename T> struct is_string { static constexpr bool value = std::is_same_v<T, const char*> || std::is_same_v<std::decay_t<T>, std::string> || std::is_same_v<std::decay_t<T>, std::string_view>; };
     template <typename T> struct is_boolean { static constexpr bool value = std::is_same_v<std::decay_t<T>, bool>; };
     template <typename T> struct is_double { static constexpr bool value = std::is_same_v<std::decay_t<T>, double>;};
+    template <typename T> struct is_vector : std::false_type {};
+    template <typename T> struct is_vector<std::vector<T>> : std::true_type {};
+    template <typename T> struct is_variant : std::false_type {};
+    template <typename ... Us> struct is_variant<std::variant<Us...>> : std::true_type {};
 
     /** Attempt to match common types (integral, floating-point, string, etc.) */
     template <template <typename R> typename Trait, typename U, typename ... Us>
@@ -284,10 +288,74 @@ struct js_traits<std::variant<Ts...>>
         throw exception{};
     }
 
+    template <typename T>
+    static bool isCompatible(JSContext * ctx, JSValueConst v){
+        const char * type_name = typeid(T).name();
+        switch (v.tag)
+        {
+        case JS_TAG_STRING:
+            return is_string<T>::value;
+
+        case JS_TAG_FUNCTION_BYTECODE:
+            return std::is_function<T>::value;
+        case JS_TAG_OBJECT:
+            if (JS_IsArray(ctx, v) == 1){
+                return is_vector<T>::value;
+            }
+            if constexpr (is_shared_ptr<T>::value){
+                if (JS_GetClassID(v) == js_traits<T>::QJSClassId){
+                    return true;
+                }
+            }
+            return false;
+
+        case JS_TAG_INT: [[fallthrough]];
+        case JS_TAG_BIG_INT:
+            return std::is_integral_v<T> || std::is_floating_point_v<T>;
+        case JS_TAG_BOOL:
+            return is_boolean<T>::value || std::is_integral_v<T> || std::is_floating_point_v<T>;
+
+        case JS_TAG_BIG_DECIMAL:[[fallthrough]];
+        case JS_TAG_BIG_FLOAT:[[fallthrough]];
+        case JS_TAG_FLOAT64:
+            return is_double<T>::value || std::is_floating_point_v<T>;
+
+        case JS_TAG_SYMBOL: [[fallthrough]];
+        case JS_TAG_MODULE: [[fallthrough]];
+        case JS_TAG_NULL: [[fallthrough]];
+        case JS_TAG_UNDEFINED: [[fallthrough]];
+        case JS_TAG_UNINITIALIZED: [[fallthrough]];
+        case JS_TAG_CATCH_OFFSET: [[fallthrough]];
+        case JS_TAG_EXCEPTION: [[fallthrough]];
+        default:
+            break;
+        }
+        return false;
+    }
+
+    template <typename U, typename ... Us>
+    static std::variant<Ts...> unwrapArray(JSContext * ctx, JSValueConst jsarr)
+    {
+        const auto length_ = JS_GetPropertyStr(ctx, jsarr, "length");
+        if (length_.tag != 0) throw exception{};
+        const auto length = length_.u.int32;
+        auto firstElement = JS_GetPropertyUint32(ctx, jsarr, 0);
+        if constexpr (is_vector<U>::value){
+            if (isCompatible<std::decay_t<typename U::value_type>>(ctx, firstElement)){
+                return U{js_traits<U>::unwrap(ctx, jsarr)};
+            }
+        }
+        if constexpr ((sizeof ... (Us)) > 0){
+            return unwrapArray<Us...>(ctx, jsarr);
+        }
+        throw exception{};
+    }
+
 
     static std::variant<Ts...> unwrap(JSContext * ctx, JSValueConst v)
     {
-        switch (JS_VALUE_GET_TAG(v))
+        const auto tag = JS_VALUE_GET_TAG(v);
+        switch (tag)
         {
         case JS_TAG_STRING:
             return unwrapPriority<is_string>(ctx, v);
@@ -295,6 +363,9 @@ struct js_traits<std::variant<Ts...>>
         case JS_TAG_FUNCTION_BYTECODE:
             return unwrapPriority<std::is_function>(ctx, v);
         case JS_TAG_OBJECT:
+            if (JS_IsArray(ctx, v) == 1){
+                return unwrapArray<Ts...>(ctx, v);
+            }
             if (auto result = unwrapObj<Ts...>(ctx, v)){
                 return *result;
             }
