@@ -230,9 +230,9 @@ struct js_traits<std::variant<Ts...>>
 {
     static JSValue wrap(JSContext * ctx, const std::variant<Ts...> &value) noexcept
     {
-        return std::visit([](auto && value){
+        return std::visit([ctx](auto && value){
             using T = std::decay_t<decltype(value)>;
-            return js_traits<T>::wrap(value);
+            return js_traits<T>::wrap(ctx, value);
         }, value);
     }
 
