@@ -223,6 +223,7 @@ struct js_traits<const char *>
     }
 };
 
+
 /** Conversion from const std::variant */
 template <typename ... Ts>
 struct js_traits<std::variant<Ts...>>
@@ -1521,6 +1522,35 @@ struct js_traits<std::vector<T>>
         arr.reserve((uint32_t) len);
         for(uint32_t i = 0; i < (uint32_t) len; i++)
             arr.push_back(static_cast<T>(jsarray[i]));
+        return arr;
+    }
+};
+
+
+template <typename U, typename V>
+struct js_traits<std::pair<U, V>>
+{
+    static JSValue wrap(JSContext * ctx, const std::pair<U, V> &obj) noexcept
+    {
+       auto jsarray = Value{ctx, JS_NewArray(ctx)};
+        jsarray[uint32_t(0)] = obj.first;
+        jsarray[uint32_t(1)] = obj.second;
+        return jsarray.release();
+    }
+
+    static std::pair<U, V> unwrap(JSContext * ctx, JSValueConst jsarr)
+    {
+        int e = JS_IsArray(ctx, jsarr);
+        if(e == 0)
+            JS_ThrowTypeError(ctx, "js_traits<std::vector<T>>::unwrap expects array");
+        if(e <= 0)
+            throw exception{};
+        Value jsarray{ctx, JS_DupValue(ctx, jsarr)};
+        std::pair<U, V> arr;
+        const auto len = static_cast<uint32_t>(jsarray["length"]);
+        if (len != 2) throw exception{};
+        arr.first = static_cast<U>(jsarray[uint32_t(0)]);
+        arr.second = static_cast<V>(jsarray[uint32_t(1)]);
         return arr;
     }
 };
