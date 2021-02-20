@@ -291,7 +291,7 @@ struct js_traits<std::variant<Ts...>>
 
     template <typename T>
     static bool isCompatible(JSContext * ctx, JSValueConst v){
-        const char * type_name = typeid(T).name();
+        //const char * type_name = typeid(T).name();
         switch (JS_VALUE_GET_TAG(v))
         {
         case JS_TAG_STRING:
@@ -337,11 +337,11 @@ struct js_traits<std::variant<Ts...>>
     template <typename U, typename ... Us>
     static std::variant<Ts...> unwrapArray(JSContext * ctx, JSValueConst jsarr)
     {
-        const auto length_ = JS_GetPropertyStr(ctx, jsarr, "length");
-        if (JS_VALUE_GET_TAG(length_) != 0) throw exception{};
-        const auto length = JS_VALUE_GET_INT(length_);
-        auto firstElement = JS_GetPropertyUint32(ctx, jsarr, 0);
+        //const auto length_ = JS_GetPropertyStr(ctx, jsarr, "length");
+        //if (JS_VALUE_GET_TAG(length_) != 0) throw exception{};
+        //const auto length = JS_VALUE_GET_INT(length_);
         if constexpr (is_vector<U>::value){
+            auto firstElement = JS_GetPropertyUint32(ctx, jsarr, 0);
             if (isCompatible<std::decay_t<typename U::value_type>>(ctx, firstElement)){
                 return U{js_traits<U>::unwrap(ctx, jsarr)};
             }
@@ -378,20 +378,30 @@ struct js_traits<std::variant<Ts...>>
         case JS_TAG_BOOL:
             return unwrapPriority<is_boolean, std::is_integral, std::is_floating_point>(ctx, v);
 
-        case JS_TAG_BIG_DECIMAL:[[fallthrough]];
-        case JS_TAG_BIG_FLOAT:[[fallthrough]];
-        case JS_TAG_FLOAT64:
-            return unwrapPriority<is_double, std::is_floating_point>(ctx, v);
-
         case JS_TAG_SYMBOL: [[fallthrough]];
         case JS_TAG_MODULE: [[fallthrough]];
         case JS_TAG_NULL: [[fallthrough]];
         case JS_TAG_UNDEFINED: [[fallthrough]];
         case JS_TAG_UNINITIALIZED: [[fallthrough]];
-        case JS_TAG_CATCH_OFFSET: [[fallthrough]];
-        case JS_TAG_EXCEPTION: [[fallthrough]];
-        default:
+        case JS_TAG_CATCH_OFFSET:
+        {
+#ifdef __cpp_rtti
+            const char * type = typeid(std::variant<Ts...>).name();
+#else
+            const char * type = "variant<...>";
+#endif
+            JS_ThrowTypeError(ctx, "Expected type %s, got tag %d", type, tag);
+        } [[fallthrough]];
+        case JS_TAG_EXCEPTION:
+            throw exception{};
             break;
+
+        case JS_TAG_BIG_DECIMAL: [[fallthrough]];
+        case JS_TAG_BIG_FLOAT: [[fallthrough]];
+
+        case JS_TAG_FLOAT64: [[fallthrough]];
+        default: // more than JS_TAG_FLOAT64 (nan boxing)
+            return unwrapPriority<is_double, std::is_floating_point>(ctx, v);
         }
 
         throw exception{};
