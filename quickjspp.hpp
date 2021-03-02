@@ -15,6 +15,14 @@
 #include <stdexcept>
 #include <variant>
 
+
+#if defined(__cpp_rtti)
+#define QJSPP_TYPENAME(...) (typeid(__VA_ARGS__).name())
+#else
+#define QJSPP_TYPENAME(...) #__VA_ARGS__
+#endif
+
+
 namespace qjs {
 
 
@@ -1541,28 +1549,39 @@ struct js_traits<std::vector<T>>
 template <typename U, typename V>
 struct js_traits<std::pair<U, V>>
 {
-    static JSValue wrap(JSContext * ctx, const std::pair<U, V> &obj) noexcept
+    static JSValue wrap(JSContext * ctx, std::pair<U, V> obj) noexcept
     {
-       auto jsarray = Value{ctx, JS_NewArray(ctx)};
-        jsarray[uint32_t(0)] = obj.first;
-        jsarray[uint32_t(1)] = obj.second;
-        return jsarray.release();
+        try
+        {
+            auto jsarray = Value{ctx, JS_NewArray(ctx)};
+            jsarray[uint32_t(0)] = std::move(obj.first);
+            jsarray[uint32_t(1)] = std::move(obj.second);
+            return jsarray.release();
+        }
+        catch(exception)
+        {
+            return JS_EXCEPTION;
+        }
     }
 
     static std::pair<U, V> unwrap(JSContext * ctx, JSValueConst jsarr)
     {
         int e = JS_IsArray(ctx, jsarr);
         if(e == 0)
-            JS_ThrowTypeError(ctx, "js_traits<std::vector<T>>::unwrap expects array");
+            JS_ThrowTypeError(ctx, "js_traits<%s>::unwrap expects array", QJSPP_TYPENAME(std::pair<U, V>));
         if(e <= 0)
             throw exception{};
         Value jsarray{ctx, JS_DupValue(ctx, jsarr)};
-        std::pair<U, V> arr;
         const auto len = static_cast<uint32_t>(jsarray["length"]);
-        if (len != 2) throw exception{};
-        arr.first = static_cast<U>(jsarray[uint32_t(0)]);
-        arr.second = static_cast<V>(jsarray[uint32_t(1)]);
-        return arr;
+        if (len != 2)
+        {
+            JS_ThrowTypeError(ctx, "js_traits<%s>::unwrap expected array of length 2, got length %d", QJSPP_TYPENAME(std::pair<U, V>), len);
+            throw exception{};
+        }
+        return std::pair<U, V>{
+                static_cast<U>(jsarray[uint32_t(0)]),
+                static_cast<V>(jsarray[uint32_t(1)])
+        };
     }
 };
 
