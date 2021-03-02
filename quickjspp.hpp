@@ -237,12 +237,12 @@ struct js_traits<const char *>
 template <typename ... Ts>
 struct js_traits<std::variant<Ts...>>
 {
-    static JSValue wrap(JSContext * ctx, const std::variant<Ts...> &value) noexcept
+    static JSValue wrap(JSContext * ctx, std::variant<Ts...> value) noexcept
     {
         return std::visit([ctx](auto && value){
             using T = std::decay_t<decltype(value)>;
             return js_traits<T>::wrap(ctx, value);
-        }, value);
+        }, std::move(value));
     }
 
 
@@ -254,6 +254,8 @@ struct js_traits<std::variant<Ts...>>
     template <typename T> struct is_double { static constexpr bool value = std::is_same_v<std::decay_t<T>, double>;};
     template <typename T> struct is_vector : std::false_type {};
     template <typename T> struct is_vector<std::vector<T>> : std::true_type {};
+    template <typename T> struct is_pair : std::false_type {};
+    template <typename U, typename V> struct is_pair<std::pair<U, V>> : std::true_type {};
     template <typename T> struct is_variant : std::false_type {};
     template <typename ... Us> struct is_variant<std::variant<Us...>> : std::true_type {};
 
@@ -272,15 +274,59 @@ struct js_traits<std::variant<Ts...>>
 
     /** Attempt to match class ID with type */
     template <typename U, typename ... Us>
-    static std::optional<std::variant<Ts...>> unwrapObj(JSContext * ctx, JSValueConst v)
+    static std::optional<std::variant<Ts...>> unwrapObj(JSContext * ctx, JSValueConst v, JSClassID class_id)
     {
         if constexpr (is_shared_ptr<U>::value){
-            if (JS_GetClassID(v) == js_traits<U>::QJSClassId){
+            if (class_id == js_traits<U>::QJSClassId){
                 return js_traits<U>::unwrap(ctx, v);
             }
         }
-        if constexpr ((sizeof ... (Us)) > 0){
-            return unwrapObj<Us...>(ctx, v);
+
+        // try to unwrap embedded variant (variant<variant<...>>), might be slow
+        if constexpr (is_variant<U>::value)
+        {
+            try
+            {
+                return js_traits<U>::unwrap(ctx, v);
+            }
+            catch(exception) { JS_FreeValue(ctx, JS_GetException(ctx)); } // ignore, clear exception
+        }
+
+        if constexpr (is_vector<U>::value)
+        {
+            if(JS_IsArray(ctx, v) == 1)
+            {
+                auto firstElement = JS_GetPropertyUint32(ctx, v, 0);
+                bool ok = isCompatible<std::decay_t<typename U::value_type>>(ctx, firstElement);
+                JS_FreeValue(ctx, firstElement);
+                if(ok)
+                {
+                    return U{js_traits<U>::unwrap(ctx, v)};
+                }
+            }
+        }
+
+        if constexpr (is_pair<U>::value)
+        {
+            if(JS_IsArray(ctx, v) == 1)
+            {
+                // todo: check length?
+                auto firstElement = JS_GetPropertyUint32(ctx, v, 0);
+                auto secondElement = JS_GetPropertyUint32(ctx, v, 1);
+                bool ok = isCompatible<std::decay_t<typename U::first_type>>(ctx, firstElement)
+                   && isCompatible<std::decay_t<typename U::second_type>>(ctx, secondElement);
+                JS_FreeValue(ctx, firstElement);
+                JS_FreeValue(ctx, secondElement);
+                if(ok)
+                {
+                    return U{js_traits<U>::unwrap(ctx, v)};
+                }
+            }
+        }
+
+        if constexpr ((sizeof ... (Us)) > 0)
+        {
+            return unwrapObj<Us...>(ctx, v, class_id);
         }
         return std::nullopt;
     }
@@ -295,11 +341,12 @@ struct js_traits<std::variant<Ts...>>
         if constexpr ((sizeof ... (Traits)) > 0){
             return unwrapPriority<Traits...>(ctx, v);
         }
+        JS_ThrowTypeError(ctx, "Expected type %s", QJSPP_TYPENAME(std::variant<Ts...>));
         throw exception{};
     }
 
     template <typename T>
-    static bool isCompatible(JSContext * ctx, JSValueConst v){
+    static bool isCompatible(JSContext * ctx, JSValueConst v) noexcept {
         //const char * type_name = typeid(T).name();
         switch (JS_VALUE_GET_TAG(v))
         {
@@ -310,7 +357,7 @@ struct js_traits<std::variant<Ts...>>
             return std::is_function<T>::value;
         case JS_TAG_OBJECT:
             if (JS_IsArray(ctx, v) == 1){
-                return is_vector<T>::value;
+                return is_vector<T>::value || is_pair<T>::value;
             }
             if constexpr (is_shared_ptr<T>::value){
                 if (JS_GetClassID(v) == js_traits<T>::QJSClassId){
@@ -343,25 +390,6 @@ struct js_traits<std::variant<Ts...>>
         return false;
     }
 
-    template <typename U, typename ... Us>
-    static std::variant<Ts...> unwrapArray(JSContext * ctx, JSValueConst jsarr)
-    {
-        //const auto length_ = JS_GetPropertyStr(ctx, jsarr, "length");
-        //if (JS_VALUE_GET_TAG(length_) != 0) throw exception{};
-        //const auto length = JS_VALUE_GET_INT(length_);
-        if constexpr (is_vector<U>::value){
-            auto firstElement = JS_GetPropertyUint32(ctx, jsarr, 0);
-            if (isCompatible<std::decay_t<typename U::value_type>>(ctx, firstElement)){
-                return U{js_traits<U>::unwrap(ctx, jsarr)};
-            }
-        }
-        if constexpr ((sizeof ... (Us)) > 0){
-            return unwrapArray<Us...>(ctx, jsarr);
-        }
-        throw exception{};
-    }
-
-
     static std::variant<Ts...> unwrap(JSContext * ctx, JSValueConst v)
     {
         const auto tag = JS_VALUE_GET_TAG(v);
@@ -373,12 +401,10 @@ struct js_traits<std::variant<Ts...>>
         case JS_TAG_FUNCTION_BYTECODE:
             return unwrapPriority<std::is_function>(ctx, v);
         case JS_TAG_OBJECT:
-            if (JS_IsArray(ctx, v) == 1){
-                return unwrapArray<Ts...>(ctx, v);
-            }
-            if (auto result = unwrapObj<Ts...>(ctx, v)){
+            if (auto result = unwrapObj<Ts...>(ctx, v, JS_GetClassID(v))){
                 return *result;
             }
+            JS_ThrowTypeError(ctx, "Expected type %s, got object with classid %d", QJSPP_TYPENAME(std::variant<Ts...>), JS_GetClassID(v));
             break;
 
         case JS_TAG_INT: [[fallthrough]];
@@ -393,16 +419,9 @@ struct js_traits<std::variant<Ts...>>
         case JS_TAG_UNDEFINED: [[fallthrough]];
         case JS_TAG_UNINITIALIZED: [[fallthrough]];
         case JS_TAG_CATCH_OFFSET:
-        {
-#ifdef __cpp_rtti
-            const char * type = typeid(std::variant<Ts...>).name();
-#else
-            const char * type = "variant<...>";
-#endif
-            JS_ThrowTypeError(ctx, "Expected type %s, got tag %d", type, tag);
-        } [[fallthrough]];
+            JS_ThrowTypeError(ctx, "Expected type %s, got tag %d", QJSPP_TYPENAME(std::variant<Ts...>), tag);
+            [[fallthrough]];
         case JS_TAG_EXCEPTION:
-            throw exception{};
             break;
 
         case JS_TAG_BIG_DECIMAL: [[fallthrough]];
