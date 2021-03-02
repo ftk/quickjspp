@@ -26,9 +26,21 @@ auto f(var v1, const var& /*v2*/) -> var
     }, v1);
 }
 
+using var2 = std::variant<var, std::vector<std::pair<var, var>>>;
+
+
+auto f2(var2 v2) -> var
+{
+    if(auto *v = std::get_if<var>(&v2))
+        return *v;
+    if(auto *vec = std::get_if<std::vector<std::pair<var, var>>>(&v2))
+        return (*vec)[0].first;
+    std::abort();
+}
+
 void assert_(bool condition)
 {
-    assert(condition);
+    if(!condition) throw qjs::exception{};
 }
 
 static void qjs_glue(qjs::Context::Module& m)
@@ -44,7 +56,7 @@ static void qjs_glue(qjs::Context::Module& m)
             ;
     m.function<&::assert_>("assert"); // (bool)
     m.function<&::f>("f"); // (::var, ::var const &)
-
+    m.function<&::f2>("f2");
 } // qjs_glue
 
 
@@ -73,6 +85,9 @@ int main()
                      "my.assert(my.f(x, x) instanceof my.B);"
                      "x = new my.B();"
                      "my.assert(my.f(x, x) instanceof my.A);"
+                     "my.assert(my.f2(x) instanceof my.B);"
+                     "my.assert(my.f2([[x,x]]) instanceof my.B);"
+                     "my.assert(my.f2([[my.f(x,x),x]]) instanceof my.A);"
         );
     }
     catch(qjs::exception)
