@@ -14,6 +14,7 @@
 #include <functional>
 #include <stdexcept>
 #include <variant>
+#include <optional>
 
 
 #if defined(__cpp_rtti)
@@ -294,12 +295,8 @@ struct js_traits<std::variant<Ts...>>
         // try to unwrap embedded variant (variant<variant<...>>), might be slow
         if constexpr (is_variant<U>::value)
         {
-            try
-            {
-                return js_traits<U>::unwrap(ctx, v);
-            }
-            catch(exception)
-            { JS_FreeValue(ctx, JS_GetException(ctx)); } // ignore, clear exception
+            if(auto opt = js_traits<std::optional<U>>::unwrap(ctx, v))
+                return *opt;
         }
 
         if constexpr (is_vector<U>::value)
@@ -1642,6 +1639,40 @@ struct js_traits<std::pair<U, V>>
         };
     }
 };
+
+/** Conversions for std::optional.
+ * Unlike other types does not throw on unwrap but returns nullopt.
+ * Converts std::nullopt to null.
+ */
+template <typename T>
+struct js_traits<std::optional<T>>
+{
+    /** Wraps T or null. */
+    static JSValue wrap(JSContext * ctx, std::optional<T> obj) noexcept
+    {
+        if(obj)
+            return js_traits<std::decay_t<T>>::wrap(ctx, *obj);
+        return JS_NULL;
+    }
+
+    /** If conversion to T fails returns std::nullopt. */
+    static auto unwrap(JSContext * ctx, JSValueConst v) noexcept -> std::optional<decltype(js_traits<std::decay_t<T>>::unwrap(ctx, v))>
+    {
+        try
+        {
+            if(JS_IsNull(v))
+                return std::nullopt;
+            return js_traits<std::decay_t<T>>::unwrap(ctx, v);
+        }
+        catch(exception)
+        {
+            // ignore and clear exception
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        }
+        return std::nullopt;
+    }
+};
+
 
 namespace detail {
 template <typename Key>
