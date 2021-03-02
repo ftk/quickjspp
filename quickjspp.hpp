@@ -320,6 +320,7 @@ struct js_traits<std::variant<Ts...>>
         case JS_TAG_BIG_DECIMAL:[[fallthrough]];
         case JS_TAG_BIG_FLOAT:[[fallthrough]];
         case JS_TAG_FLOAT64:
+        default: // >JS_TAG_FLOAT64 (JS_NAN_BOXING)
             return is_double<T>::value || std::is_floating_point_v<T>;
 
         case JS_TAG_SYMBOL: [[fallthrough]];
@@ -328,8 +329,7 @@ struct js_traits<std::variant<Ts...>>
         case JS_TAG_UNDEFINED: [[fallthrough]];
         case JS_TAG_UNINITIALIZED: [[fallthrough]];
         case JS_TAG_CATCH_OFFSET: [[fallthrough]];
-        case JS_TAG_EXCEPTION: [[fallthrough]];
-        default:
+        case JS_TAG_EXCEPTION:
             break;
         }
         return false;
