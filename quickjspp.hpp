@@ -99,7 +99,8 @@ struct js_traits<bool>
 {
     static bool unwrap(JSContext * ctx, JSValueConst v) noexcept
     {
-        return JS_ToBool(ctx, v);
+        // TODO: is this behaviour correct?
+        return JS_ToBool(ctx, v) > 0;
     }
 
     static JSValue wrap(JSContext * ctx, bool i) noexcept
