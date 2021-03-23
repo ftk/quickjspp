@@ -725,7 +725,10 @@ struct js_traits<std::shared_ptr<T>>
                     [](JSRuntime * rt, JSValue obj) noexcept {
                         auto pptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque(obj, QJSClassId));
                         delete pptr;
-                    }
+                    },
+                    nullptr,
+                    nullptr,
+                    nullptr
             };
             int e = JS_NewClass(rt, QJSClassId, &def);
             if(e < 0)
@@ -878,7 +881,8 @@ struct js_traits<detail::function>
                     if(!ptr)
                         return JS_EXCEPTION;
                     return ptr->invoker(ptr, ctx, this_val, argc, argv);
-                }
+                },
+                nullptr
         };
         int e = JS_NewClass(rt, QJSClassId, &def);
         if(e < 0)
