@@ -723,7 +723,7 @@ struct js_traits<std::shared_ptr<T>>
                     name,
                     // destructor
                     [](JSRuntime * rt, JSValue obj) noexcept {
-                        auto pptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque(obj, QJSClassId));
+                        auto pptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque(obj, QJSClassId));
                         delete pptr;
                     },
                     nullptr,
@@ -767,7 +767,7 @@ struct js_traits<std::shared_ptr<T>>
     /// @throws exception if #v doesn't have the correct class id
     static const std::shared_ptr<T>& unwrap(JSContext * ctx, JSValueConst v)
     {
-        auto ptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, QJSClassId));
+        auto ptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, QJSClassId));
         if(!ptr)
             throw exception{};
         return *ptr;
@@ -803,8 +803,7 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
 
     static T * unwrap(JSContext * ctx, JSValueConst v)
     {
-        auto ptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v,
-                                                                        js_traits<std::shared_ptr<T>>::QJSClassId));
+        auto ptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, js_traits<std::shared_ptr<T>>::QJSClassId));
         if(!ptr)
             throw exception{};
         return ptr->get();
@@ -827,7 +826,7 @@ struct function
     template <typename Functor>
     static function * create(JSRuntime * rt, Functor&& f)
     {
-        auto fptr = reinterpret_cast<function *>(js_malloc_rt(rt, sizeof(function) + sizeof(Functor)));
+        auto fptr = static_cast<function *>(js_malloc_rt(rt, sizeof(function) + sizeof(Functor)));
         if(!fptr)
             throw std::bad_alloc{};
         new(fptr) function;
@@ -837,7 +836,7 @@ struct function
         if constexpr(!std::is_trivially_destructible_v<Functor>)
         {
             fptr->destroyer = [](function * fptr) {
-                auto functorptr = reinterpret_cast<Functor *>(fptr->functor);
+                auto functorptr = static_cast<Functor *>(fptr->functor);
                 functorptr->~Functor();
             };
         }
@@ -867,7 +866,7 @@ struct js_traits<detail::function>
                 name,
                 // destructor
                 [](JSRuntime * rt, JSValue obj) noexcept {
-                    auto fptr = reinterpret_cast<detail::function *>(JS_GetOpaque(obj, QJSClassId));
+                    auto fptr = static_cast<detail::function *>(JS_GetOpaque(obj, QJSClassId));
                     assert(fptr);
                     if(fptr->destroyer)
                         fptr->destroyer(fptr);
@@ -877,7 +876,7 @@ struct js_traits<detail::function>
                 // call
                 [](JSContext * ctx, JSValueConst func_obj, JSValueConst this_val, int argc,
                    JSValueConst * argv, int flags) -> JSValue {
-                    auto ptr = reinterpret_cast<detail::function *>(JS_GetOpaque2(ctx, func_obj, QJSClassId));
+                    auto ptr = static_cast<detail::function *>(JS_GetOpaque2(ctx, func_obj, QJSClassId));
                     if(!ptr)
                         return JS_EXCEPTION;
                     return ptr->invoker(ptr, ctx, this_val, argc, argv);
@@ -1483,7 +1482,7 @@ public:
     {
         void * ptr = JS_GetContextOpaque(ctx);
         assert(ptr);
-        return *reinterpret_cast<Context *>(ptr);
+        return *static_cast<Context *>(ptr);
     }
 };
 
