@@ -9,5 +9,7 @@ ver="$(curl -s --compressed -L https://bellard.org/quickjs/ | grep --perl-regexp
 
 curl -s -L "https://bellard.org/quickjs/quickjs-${ver}.tar.xz" | unxz | tar --strip-components=1 -xf - -- "${@/#/quickjs-${ver}\/}"
 
+git apply --verbose -- patches/*.patch
+
 # commit (interactive)
 git commit -m "update quickjs to ${ver}" -e -- $@
