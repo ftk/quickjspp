@@ -1,7 +1,7 @@
 #pragma once
 
-#include "quickjs/quickjs.h"
-#include "quickjs/quickjs-libc.h"
+#include "../quickjs/quickjs.h"
+#include "../quickjs/quickjs-libc.h"
 
 #include <vector>
 #include <string_view>
@@ -765,13 +765,16 @@ struct js_traits<std::shared_ptr<T>>
     }
 
     /// @throws exception if #v doesn't have the correct class id
-    static const std::shared_ptr<T>& unwrap(JSContext * ctx, JSValueConst v)
-    {
-        auto ptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, QJSClassId));
-        if(!ptr)
-            throw exception{};
-        return *ptr;
-    }
+    static const std::shared_ptr<T>& unwrap( JSContext* ctx, JSValueConst v ) {
+		#ifdef QUICKJSPP_BASECLASS
+		auto ptr = reinterpret_cast<std::shared_ptr<T> *>( JS_GetOpaque2( ctx, v, JS_GetClassID( v, NULL ) ) );
+		#else
+		auto ptr = reinterpret_cast<std::shared_ptr<T> *>( JS_GetOpaque2( ctx, v, QJSClassId ) );
+		#endif
+		if ( !ptr )
+			throw exception{};
+		return *ptr;
+	}
 };
 
 /** Conversions for non-owning pointers to class T.
@@ -801,14 +804,17 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
         return jsobj;
     }
 
-    static T * unwrap(JSContext * ctx, JSValueConst v)
-    {
-        auto ptr = reinterpret_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v,
-                                                                        js_traits<std::shared_ptr<T>>::QJSClassId));
-        if(!ptr)
-            throw exception{};
-        return ptr->get();
-    }
+    static T* unwrap( JSContext* ctx, JSValueConst v ) {
+		#ifdef QUICKJSPP_BASECLASS
+		auto ptr = reinterpret_cast<std::shared_ptr<T> *>( JS_GetOpaque2( ctx, v, JS_GetClassID( v, NULL ) ) );
+		#else
+		auto ptr = reinterpret_cast<std::shared_ptr<T> *>( JS_GetOpaque2( ctx, v,
+			js_traits<std::shared_ptr<T>>::QJSClassId ) );
+		#endif
+		if ( !ptr )
+			throw exception{};
+		return ptr->get();
+	}
 };
 
 namespace detail {
@@ -1356,7 +1362,7 @@ public:
                 return *this;
             }
 
-            /* TODO: needs casting to base class
+            #ifdef QUICKJSPP_BASECLASS
             template <class B>
             class_registrar& base()
             {
@@ -1368,7 +1374,7 @@ public:
                     throw exception{};
                 return *this;
             }
-             */
+            #endif
 
             ~class_registrar()
             {
