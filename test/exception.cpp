@@ -26,20 +26,6 @@ int main()
 
     try
     {
-        std::string big;
-        big.resize((1 << 30) + 1);
-        auto fun = context.eval("(function(a, b, c) { println(a); println(b); println(c); })").as<std::function<void(double, std::string, int)>>();
-        fun(0, std::move(big), 0);
-        assert(false);
-    }
-    catch(qjs::exception)
-    {
-        auto exc = context.getException();
-        std::cout << (std::string) exc << '\n' << (std::string_view) exc["stack"];
-    }
-
-    try
-    {
         //context.global().add("emptyf", [](JSValue v) {} );
         auto f = (std::function<void ()>) context.eval("(function() { +Symbol.toPrimitive })");
         f();
