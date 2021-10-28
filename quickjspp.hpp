@@ -782,6 +782,9 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
 {
     static JSValue wrap(JSContext * ctx, T * ptr)
     {
+        if (ptr == nullptr) {
+            return JS_NULL;
+        }   
         if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
         {
 #if defined(__cpp_rtti)
@@ -803,6 +806,9 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
 
     static T * unwrap(JSContext * ctx, JSValueConst v)
     {
+        if (JS_IsNull(v)) {
+            return nullptr;
+        }
         auto ptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, js_traits<std::shared_ptr<T>>::QJSClassId));
         if(!ptr)
             throw exception{};
