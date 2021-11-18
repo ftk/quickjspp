@@ -1,6 +1,7 @@
 #include "quickjspp.hpp"
 #include <iostream>
 #include <numeric>
+#include <limits>
 
 template <typename T>
 void test_conv(qjs::Context& context, T x)
