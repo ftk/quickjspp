@@ -467,6 +467,13 @@ struct js_traits<std::variant<Ts...>>
     }
 };
 
+template <typename T>
+struct rest : std::vector<T>
+{
+    using std::vector<T>::vector;
+    using std::vector<T>::operator=;
+};
+
 namespace detail {
 
 /** Helper function to convert and then free JSValue. */
@@ -504,6 +511,18 @@ struct unwrap_arg_impl {
             throw exception{};
         }
         return js_traits<std::decay_t<T>>::unwrap(ctx, argv[I]);
+    }
+};
+
+template <typename T, size_t I, size_t NArgs>
+struct unwrap_arg_impl<rest<T>, I, NArgs> {
+    static rest<T> unwrap(JSContext * ctx, int argc, JSValueConst * argv) {
+        static_assert(I == NArgs - 1, "The `rest` argument must be the last function argument.");
+        rest<T> result;
+        result.reserve(argc - I);
+        for (size_t i = I; i < size_t(argc); ++i)
+            result.push_back(js_traits<T>::unwrap(ctx, argv[i]));
+        return result;
     }
 };
 
