@@ -500,7 +500,7 @@ struct unwrap_arg_impl {
     {
         if (size_t(argc) <= I) {
             JS_ThrowTypeError(ctx, "Expected type %lu arguments but only %d were provided",
-                              (unsigned long)NArgs, argc);
+                              NArgs, argc);
             throw exception{};
         }
         return js_traits<std::decay_t<T>>::unwrap(ctx, argv[I]);
