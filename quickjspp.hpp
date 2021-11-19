@@ -739,7 +739,7 @@ struct js_traits<ctor_wrapper<T, Args...>>
 };
 
 
-/** Conversions for std::shared_ptr<T>.
+/** Conversions for std::shared_ptr<T>. Empty shared_ptr corresponds to JS_NULL.
  * T should be registered to a context before conversions.
  * @tparam T class type
  */
@@ -851,6 +851,8 @@ struct js_traits<std::shared_ptr<T>>
      */
     static JSValue wrap(JSContext * ctx, std::shared_ptr<T> ptr)
     {
+        if(!ptr)
+            return JS_NULL;
         if(QJSClassId == 0) // not registered
         {
 #if defined(__cpp_rtti)
@@ -871,9 +873,12 @@ struct js_traits<std::shared_ptr<T>>
     }
 
     /// @throws exception if #v doesn't have the correct class id
-    static const std::shared_ptr<T> unwrap(JSContext * ctx, JSValueConst v)
+    static std::shared_ptr<T> unwrap(JSContext * ctx, JSValueConst v)
     {
         std::shared_ptr<T> ptr = nullptr;
+        if (JS_IsNull(v)) {
+            return ptr;
+        }
         auto obj_class_id = JS_GetClassID(v);
 
         if (obj_class_id == QJSClassId) {
@@ -896,7 +901,7 @@ struct js_traits<std::shared_ptr<T>>
     }
 };
 
-/** Conversions for non-owning pointers to class T.
+/** Conversions for non-owning pointers to class T. nullptr corresponds to JS_NULL.
  * @tparam T class type
  */
 template <class T>
