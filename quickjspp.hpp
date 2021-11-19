@@ -666,7 +666,9 @@ template <typename R, typename... Args, R (* F)(Args...) specifiers, bool PassTh
 struct js_traits<fwrapper<F, PassThis>> : public detail::fwrapper_trait_helper<R, void, F, PassThis, Args...> {}
 
 QJSPP_DEFINE_TRAIT();
+#if !defined(__clang_major__) || __clang_major__ >= 12 // clang < 12 is broken
 QJSPP_DEFINE_TRAIT(noexcept);
+#endif
 #undef QJSPP_DEFINE_TRAIT
 
 /** Conversion to JSValue for class member function (incl. const and noexcept functions) in fwrapper. PassThis is ignored and treated as true */
@@ -675,9 +677,11 @@ template <typename R, class T, typename... Args, R (T::*F)(Args...) specifiers, 
 struct js_traits<fwrapper<F, PassThis>> : public detail::fwrapper_trait_helper<R, T, F, PassThis, Args...> {}
 
 QJSPP_DEFINE_TRAIT();
-QJSPP_DEFINE_TRAIT(noexcept);
 QJSPP_DEFINE_TRAIT(const);
+#if !defined(__clang_major__) || __clang_major__ >= 12
+QJSPP_DEFINE_TRAIT(noexcept);
 QJSPP_DEFINE_TRAIT(const noexcept);
+#endif
 #undef QJSPP_DEFINE_TRAIT
 
 /** A wrapper type for constructor of type T with arguments Args.
