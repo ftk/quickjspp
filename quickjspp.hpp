@@ -500,7 +500,7 @@ struct unwrap_arg_impl {
     {
         if (size_t(argc) <= I) {
             JS_ThrowTypeError(ctx, "Expected type %lu arguments but only %d were provided",
-                              NArgs, argc);
+                              (unsigned long)NArgs, argc);
             throw exception{};
         }
         return js_traits<std::decay_t<T>>::unwrap(ctx, argv[I]);
@@ -858,7 +858,9 @@ struct js_traits<std::shared_ptr<T>>
 
         if (obj_class_id == QJSClassId) {
             // The JS object is of class T
-            ptr = *static_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, obj_class_id));
+            void * opaque = JS_GetOpaque2(ctx, v, obj_class_id);
+            assert(opaque && "No opaque pointer in object");
+            ptr = *static_cast<std::shared_ptr<T> *>(opaque);
         } else if (ptrCastFcnMap.count(obj_class_id)) {
             // The JS object is of a class derived from T
             ptr = ptrCastFcnMap[obj_class_id](ctx, v);
