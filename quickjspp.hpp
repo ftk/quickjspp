@@ -638,50 +638,47 @@ struct fwrapper
     const char * name = nullptr;
 };
 
+namespace detail {
+template <typename R, typename Class, auto F, bool PassThis, typename... Args>
+struct fwrapper_trait_helper
+{
+    static JSValue wrap(JSContext * ctx, fwrapper<F, PassThis> fw) noexcept
+    {
+        return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
+                                       JSValueConst * argv) noexcept -> JSValue {
+            if constexpr(std::is_same_v<Class, void>)
+            {
+                if constexpr(PassThis)
+                    return detail::wrap_this_call<R, Args...>(ctx, F, this_value, argc, argv);
+                else
+                    return detail::wrap_call<R, Args...>(ctx, F, argc, argv);
+            }
+            else // PassThis is ignored if Class is not void
+                return detail::wrap_this_call<R, std::shared_ptr<Class>, Args...>(ctx, F, this_value, argc, argv);
+        }, fw.name, sizeof...(Args));
+    }
+};
+} // namespace detail {
+
 /** Conversion to JSValue for free function in fwrapper. */
-template <typename R, typename... Args, R (* F)(Args...), bool PassThis>
-struct js_traits<fwrapper<F, PassThis>>
-{
-    static JSValue wrap(JSContext * ctx, fwrapper<F, PassThis> fw) noexcept
-    {
-        return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
-                                       JSValueConst * argv) noexcept -> JSValue {
-            if constexpr(PassThis)
-                return detail::wrap_this_call<R, Args...>(ctx, F, this_value, argc, argv);
-            else
-                return detail::wrap_call<R, Args...>(ctx, F, argc, argv);
-        }, fw.name, sizeof...(Args));
+#define QJSPP_DEFINE_TRAIT(specifiers) \
+template <typename R, typename... Args, R (* F)(Args...) specifiers, bool PassThis> \
+struct js_traits<fwrapper<F, PassThis>> : public detail::fwrapper_trait_helper<R, void, F, PassThis, Args...> {}
 
-    }
-};
+QJSPP_DEFINE_TRAIT();
+QJSPP_DEFINE_TRAIT(noexcept);
+#undef QJSPP_DEFINE_TRAIT
 
-/** Conversion to JSValue for class member function in fwrapper. PassThis is ignored and treated as true */
-template <typename R, class T, typename... Args, R (T::*F)(Args...), bool PassThis/*=ignored*/>
-struct js_traits<fwrapper<F, PassThis>>
-{
-    static JSValue wrap(JSContext * ctx, fwrapper<F, PassThis> fw) noexcept
-    {
-        return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
-                                       JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argc, argv);
-        }, fw.name, sizeof...(Args));
+/** Conversion to JSValue for class member function (incl. const and noexcept functions) in fwrapper. PassThis is ignored and treated as true */
+#define QJSPP_DEFINE_TRAIT(specifiers) \
+template <typename R, class T, typename... Args, R (T::*F)(Args...) specifiers, bool PassThis/*=ignored*/> \
+struct js_traits<fwrapper<F, PassThis>> : public detail::fwrapper_trait_helper<R, T, F, PassThis, Args...> {}
 
-    }
-};
-
-/** Conversion to JSValue for const class member function in fwrapper. PassThis is ignored and treated as true */
-template <typename R, class T, typename... Args, R (T::*F)(Args...) const, bool PassThis/*=ignored*/>
-struct js_traits<fwrapper<F, PassThis>>
-{
-    static JSValue wrap(JSContext * ctx, fwrapper<F, PassThis> fw) noexcept
-    {
-        return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
-                                       JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argc, argv);
-        }, fw.name, sizeof...(Args));
-
-    }
-};
+QJSPP_DEFINE_TRAIT();
+QJSPP_DEFINE_TRAIT(noexcept);
+QJSPP_DEFINE_TRAIT(const);
+QJSPP_DEFINE_TRAIT(const noexcept);
+#undef QJSPP_DEFINE_TRAIT
 
 /** A wrapper type for constructor of type T with arguments Args.
  * Compilation fails if no such constructor is defined.
