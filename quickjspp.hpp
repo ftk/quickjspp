@@ -1369,13 +1369,6 @@ public:
             return *this;
         }
 
-        Module& add(const char * name, Value value)
-        {
-            assert(value.ctx == ctx);
-            exports.push_back({name, std::move(value)});
-            JS_AddModuleExport(ctx, m, name);
-            return *this;
-        }
 
         template <typename T>
         Module& add(const char * name, T value)
