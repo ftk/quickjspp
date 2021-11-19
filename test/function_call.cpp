@@ -1,45 +1,106 @@
 #include "quickjs/quickjs.h"
 #include "quickjspp.hpp"
-#include <cstdio>
+#include <iostream>
 #include <string_view>
 
-void qjs_assert(bool cond) {
-    if (!cond) {
-        printf("FAIL\n");
-        throw qjs::exception{};
-    }
-}
-
-void test_not_enough_arguments(qjs::Context & ctx) {
+int test_not_enough_arguments(qjs::Context & ctx) {
     std::string msg;
 
     ctx.global().add("test_fcn", [](int a, int b, int c) {
-        printf("%d %d %d\n", a, b, c);
+        return a + b + c;
     });
 
-    ctx.eval(
-        "try {"
-        "  test_fcn(1);"
-        "  assert(false);"
-        "} catch (err) {"
-        "  assert("
-        "    (err instanceof TypeError) && "
-        "    err.message === 'Expected type 3 arguments but only 1 were provided'"
-        "  );"
-        "}"
-    );
+    try
+    {
+        ctx.eval(R"xxx(
+            function assert(b, str = "FAIL") {
+                if (b) {
+                    return;
+                } else {
+                    throw Error("assertion failed: " + str);
+                }
+            }
+
+            function assert_eq(a, b, str = "") {
+                assert(a === b, `${JSON.stringify(a)} should be equal to ${JSON.stringify(b)}. ${str}`);
+            }
+
+            try {
+                test_fcn(1);
+                assert(false);
+            } catch (err) {
+                assert(err instanceof TypeError); 
+                assert_eq(err.message, 'Expected type 3 arguments but only 1 were provided');
+            }
+        )xxx");
+    }
+    catch(qjs::exception)
+    {
+        auto exc = ctx.getException();
+        std::cerr << (std::string) exc << std::endl;
+        if((bool) exc["stack"])
+            std::cerr << (std::string) exc["stack"] << std::endl;
+        return 1;
+    }
+
+    return 0;
 }
 
-void test_call_with_rest_arguments(qjs::Context & ctx) {
-    ctx.global().add("test_fcn", [](int a, qjs::rest<int> args) {
-        qjs_assert(a == 1);
-        qjs_assert(args.size() == 3);
-        qjs_assert(args[0] == 2);
-        qjs_assert(args[1] == 3);
-        qjs_assert(args[2] == 4);
+int test_call_with_rest_parameters(qjs::Context & ctx) {
+    ctx.global().add("test_fcn_rest", [](int a, qjs::rest<int> args) {
+        for (auto arg : args) {
+            a += arg;
+        }
+        return a;
     });
 
-    ctx.eval("test_fcn(1,2,3,4);");
+    ctx.global().add("test_fcn_vec", [](int a, std::vector<int> args) {
+        for (auto arg : args) {
+            a += arg;
+        }
+        return a;
+    });
+
+    try
+    {
+        ctx.eval(R"xxx(
+            function assert(b, str = "FAIL") {
+                if (b) {
+                    return;
+                } else {
+                    throw Error("assertion failed: " + str);
+                }
+            }
+
+            function assert_eq(a, b, str = "") {
+                assert(a === b, `${JSON.stringify(a)} should be equal to ${JSON.stringify(b)}. ${str}`);
+            }
+
+            function assert_throw(g, str = "") {
+                try {
+                    f();
+                    assert(false, `Expression should have thrown`)
+                } catch (e) {
+                }
+            }
+
+            assert_eq(test_fcn_rest(1, 2, 3, 4), 10);
+            assert_eq(test_fcn_vec(1, [2, 3, 4]), 10);
+            
+            assert_throw(() => test_fcn_rest(1, [2, 3, 4]));
+            assert_throw(() => test_fcn_vec(1, 2, 3, 4));
+        )xxx");
+    }
+    catch(qjs::exception)
+    {
+        auto exc = ctx.getException();
+        std::cerr << (std::string) exc << std::endl;
+        if((bool) exc["stack"])
+            std::cerr << (std::string) exc["stack"] << std::endl;
+        return 1;
+    }
+
+    return 0;
 }
 
 int main()
@@ -47,10 +108,9 @@ int main()
     qjs::Runtime runtime;
     qjs::Context context(runtime);
 
-    context.global().add("assert", &qjs_assert);
+    int ret = 0;
+    ret |= test_not_enough_arguments(context);
+    ret |= test_call_with_rest_parameters(context);
 
-    test_not_enough_arguments(context);
-    test_call_with_rest_arguments(context);
-
-    return 0;
+    return ret;
 }
