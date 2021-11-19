@@ -17,7 +17,10 @@ public:
     std::string member_function(const std::string& s) { return "Hello, " + s; }
 };
 
-void println(const std::string& str) { std::cout << str << std::endl; }
+void println(qjs::rest<std::string> args) {
+    for (auto const & arg : args) std::cout << arg << " ";
+    std::cout << "\n";
+}
 
 int main()
 {
@@ -34,15 +37,19 @@ int main()
                 .fun<&MyClass::member_variable>("member_variable")
                 .fun<&MyClass::member_function>("member_function");
         // import module
-        context.eval("import * as my from 'MyModule'; globalThis.my = my;", "<import>", JS_EVAL_TYPE_MODULE);
+        context.eval(R"xxx(
+            import * as my from 'MyModule';
+            globalThis.my = my;
+        )xxx", "<import>", JS_EVAL_TYPE_MODULE);
         // evaluate js code
-        context.eval("let v1 = new my.MyClass();" "\n"
-                     "v1.member_variable = 1;" "\n"
-                     "let v2 = new my.MyClassA([1,2,3]);" "\n"
-                     "function my_callback(str) {" "\n"
-                     "  my.println(v2.member_function(str));" "\n"
-                     "}" "\n"
-        );
+        context.eval(R"xxx(
+            let v1 = new my.MyClass();
+            v1.member_variable = 1;
+            let v2 = new my.MyClassA([1,2,3]);
+            function my_callback(str) {
+              my.println("at callback:", v2.member_function(str));
+            }
+        )xxx");
 
         // callback
         auto cb = (std::function<void(const std::string&)>) context.eval("my_callback");
