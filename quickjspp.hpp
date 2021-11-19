@@ -15,6 +15,8 @@
 #include <stdexcept>
 #include <variant>
 #include <optional>
+#include <type_traits>
+#include <unordered_map>
 
 
 #if defined(__cpp_rtti)
@@ -597,6 +599,12 @@ void wrap_args(JSContext * ctx, JSValue * argv, Args&& ... args)
     wrap_args_impl(ctx, argv, std::make_tuple(std::forward<Args>(args)...),
                    std::make_index_sequence<sizeof...(Args)>());
 }
+
+// Helper trait to obtain `T` in `T::*` expressions
+template<typename T> struct class_from_member_pointer { using type = void; };
+template<typename T, typename U> struct class_from_member_pointer<T U::*> { using type = U; };
+template<typename T> using class_from_member_pointer_t = typename class_from_member_pointer<T>::type;
+
 } // namespace detail
 
 /** A wrapper type for free and class member functions.
@@ -721,6 +729,66 @@ struct js_traits<std::shared_ptr<T>>
     /// Registered class id in QuickJS.
     inline static JSClassID QJSClassId = 0;
 
+    /// Signature of the function to obtain the std::shared_ptr from the JSValue.
+    using ptr_cast_fcn_t = std::function<std::shared_ptr<T>(JSContext*, JSValueConst)>;
+
+    /// Used by registerDerivedClass to register new derived classes with this class' base type.
+    inline static std::function<void(JSClassID, ptr_cast_fcn_t)> registerWithBase;
+
+    /// Mapping between derived class' JSClassID and function to obtain the std::shared_ptr from the JSValue.
+    inline static std::unordered_map<JSClassID, ptr_cast_fcn_t> ptrCastFcnMap;
+
+    /** Register a class as a derived class.
+     * 
+     * @tparam D type of the derived class
+     * @param derived_class_id class id of the derived class
+     * @param ptr_cast_fcn function to obtain a std::shared_ptr from the JSValue
+     */
+    template<typename D>
+    static void registerDerivedClass(JSClassID derived_class_id, ptr_cast_fcn_t ptr_cast_fcn) {
+        static_assert(std::is_base_of<T,D>::value && !std::is_same<T,D>::value, "Type is not a derived class");
+        using derived_ptr_cast_fcn_t = typename js_traits<std::shared_ptr<D>>::ptr_cast_fcn_t;
+
+        // Register how to obtain the std::shared_ptr from the derived class.
+        ptrCastFcnMap[derived_class_id] = ptr_cast_fcn;
+
+        // Propagate the registration to our base class (if any).
+        if (registerWithBase) registerWithBase(derived_class_id, ptr_cast_fcn);
+
+        // Instrument the derived class so that it can propagate new derived classes to us.
+        auto old_registerWithBase = js_traits<std::shared_ptr<D>>::registerWithBase;
+        js_traits<std::shared_ptr<D>>::registerWithBase =
+            [old_registerWithBase = std::move(old_registerWithBase)]
+            (JSClassID derived_class_id, derived_ptr_cast_fcn_t derived_ptr_cast_fcn){
+                if (old_registerWithBase) old_registerWithBase(derived_class_id, derived_ptr_cast_fcn);
+                registerDerivedClass<D>(derived_class_id, [derived_cast_fcn = std::move(derived_ptr_cast_fcn)](JSContext * ctx, JSValueConst v) {
+                    return std::shared_ptr<T>(derived_cast_fcn(ctx, v));
+                });
+            };
+    }
+
+    template <typename B>
+    static
+    std::enable_if_t<std::is_same_v<B, T> || std::is_same_v<B, void>>
+    ensureCanCastToBase() { }
+
+    template <typename B>
+    static
+    std::enable_if_t<!std::is_same_v<B, T> && !std::is_same_v<B, void>>
+    ensureCanCastToBase() {
+        static_assert(std::is_base_of_v<B, T>, "Type is not a derived class");
+
+        if(js_traits<std::shared_ptr<T>>::QJSClassId == 0)
+            JS_NewClassID(&js_traits<std::shared_ptr<T>>::QJSClassId);
+
+        js_traits<std::shared_ptr<B>>::template registerDerivedClass<T>(QJSClassId, unwrap);
+    }
+
+    template <auto M>
+    static void ensureCanCastToBase() {
+        ensureCanCastToBase<detail::class_from_member_pointer_t<decltype(M)>>();
+    }
+
     /** Register class in QuickJS context.
      *
      * @param ctx context
@@ -783,12 +851,26 @@ struct js_traits<std::shared_ptr<T>>
     }
 
     /// @throws exception if #v doesn't have the correct class id
-    static const std::shared_ptr<T>& unwrap(JSContext * ctx, JSValueConst v)
+    static const std::shared_ptr<T> unwrap(JSContext * ctx, JSValueConst v)
     {
-        auto ptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, QJSClassId));
+        std::shared_ptr<T> ptr = nullptr;
+        auto obj_class_id = JS_GetClassID(v);
+
+        if (obj_class_id == QJSClassId) {
+            // The JS object is of class T
+            ptr = *static_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, obj_class_id));
+        } else if (ptrCastFcnMap.count(obj_class_id)) {
+            // The JS object is of a class derived from T
+            ptr = ptrCastFcnMap[obj_class_id](ctx, v);
+        } else {
+            // The JS object does not derives from T
+            JS_ThrowTypeError(ctx, "Expected type %s, got object with classid %d",
+                              QJSPP_TYPENAME(T), obj_class_id);
+            throw exception{};
+        }
         if(!ptr)
             throw exception{};
-        return *ptr;
+        return ptr;
     }
 };
 
@@ -827,9 +909,7 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
         if (JS_IsNull(v)) {
             return nullptr;
         }
-        auto ptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque2(ctx, v, js_traits<std::shared_ptr<T>>::QJSClassId));
-        if(!ptr)
-            throw exception{};
+        auto ptr = js_traits<std::shared_ptr<T>>::unwrap(ctx, v);
         return ptr->get();
     }
 };
@@ -1000,12 +1080,12 @@ struct get_set<M>
 {
     using is_const = std::is_const<R>;
 
-    static const R& get(const std::shared_ptr<T>& ptr)
+    static const R& get(std::shared_ptr<T> ptr)
     {
         return *ptr.*M;
     }
 
-    static R& set(const std::shared_ptr<T>& ptr, R value)
+    static R& set(std::shared_ptr<T> ptr, R value)
     {
         return *ptr.*M = std::move(value);
     }
@@ -1346,6 +1426,7 @@ public:
             template <auto F>
             class_registrar& fun(const char * name)
             {
+                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<F>();
                 prototype.add<F>(name);
                 return *this;
             }
@@ -1353,6 +1434,8 @@ public:
             template <auto FGet, auto FSet = nullptr>
             class_registrar& property(const char * name)
             {
+                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<FGet>();
+                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<FSet>();
                 if constexpr (std::is_same_v<decltype(FSet), std::nullptr_t>)
                     prototype.add_getter<FGet>(name);
                 else
@@ -1375,11 +1458,15 @@ public:
                 return *this;
             }
 
-            /* TODO: needs casting to base class
+            /** Sets the base class
+             * @tparam B base class
+             */
             template <class B>
             class_registrar& base()
             {
+                static_assert(!std::is_same_v<B, T>, "Type cannot be a base of itself");
                 assert(js_traits<std::shared_ptr<B>>::QJSClassId && "base class is not registered");
+                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<B>();
                 auto base_proto = JS_GetClassProto(context.ctx, js_traits<std::shared_ptr<B>>::QJSClassId);
                 int err = JS_SetPrototype(context.ctx, prototype.v, base_proto);
                 JS_FreeValue(context.ctx, base_proto);
@@ -1387,7 +1474,6 @@ public:
                     throw exception{};
                 return *this;
             }
-             */
 
             ~class_registrar()
             {
