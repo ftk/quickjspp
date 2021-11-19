@@ -125,7 +125,8 @@ int main()
                                 "var b = new test.base_test();"
                                 "b.base_field = [[5],[1,2,3,4],[6]];"
                                 "assert(b.base_field[1][3] === 4);"
-                                "assert(b.base_method() === 5);"
+                                "assert(b.base_method(123) === 5);"
+                                "assert(b.base_field[0][0] === 123);"
 
                                 "var t = new test.TestSimple(12);"
                                 "var q = new test.Test(13, t.vb, t.vi, t.vd, t, t, t.vs, t.vs);"
