@@ -492,19 +492,32 @@ T unwrap_free(JSContext * ctx, JSValue val)
     }
 }
 
+template <typename T, size_t I, size_t NArgs>
+struct unwrap_arg_impl {
+    static auto unwrap(JSContext * ctx, int argc, JSValueConst * argv)
+    {
+        if (size_t(argc) <= I) {
+            JS_ThrowTypeError(ctx, "Expected type %lu arguments but only %d were provided",
+                              (unsigned long)NArgs, argc);
+            throw exception{};
+        }
+        return js_traits<std::decay_t<T>>::unwrap(ctx, argv[I]);
+    }
+};
+
 template <class Tuple, std::size_t... I>
-Tuple unwrap_args_impl(JSContext * ctx, JSValueConst * argv, std::index_sequence<I...>)
+Tuple unwrap_args_impl(JSContext * ctx, int argc, JSValueConst * argv, std::index_sequence<I...>)
 {
-    return Tuple{js_traits<std::decay_t<std::tuple_element_t<I, Tuple>>>::unwrap(ctx, argv[I])...};
+    return Tuple{unwrap_arg_impl<std::tuple_element_t<I, Tuple>, I, sizeof...(I)>::unwrap(ctx, argc, argv)...};
 }
 
 /** Helper function to convert an array of JSValues to a tuple.
  * @tparam Args C++ types of the argv array
  */
 template <typename... Args>
-std::tuple<std::decay_t<Args>...> unwrap_args(JSContext * ctx, JSValueConst * argv)
+std::tuple<std::decay_t<Args>...> unwrap_args(JSContext * ctx, int argc, JSValueConst * argv)
 {
-    return unwrap_args_impl<std::tuple<std::decay_t<Args>...>>(ctx, argv, std::make_index_sequence<sizeof...(Args)>());
+    return unwrap_args_impl<std::tuple<std::decay_t<Args>...>>(ctx, argc, argv, std::make_index_sequence<sizeof...(Args)>());
 }
 
 /** Helper function to call f with an array of JSValues.
@@ -517,20 +530,20 @@ std::tuple<std::decay_t<Args>...> unwrap_args(JSContext * ctx, JSValueConst * ar
  * @return converted return value of f or JS_NULL if f returns void
  */
 template <typename R, typename... Args, typename Callable>
-JSValue wrap_call(JSContext * ctx, Callable&& f, JSValueConst * argv) noexcept
+JSValue wrap_call(JSContext * ctx, Callable&& f, int argc, JSValueConst * argv) noexcept
 {
     try
     {
         if constexpr(std::is_same_v<R, void>)
         {
-            std::apply(std::forward<Callable>(f), unwrap_args<Args...>(ctx, argv));
+            std::apply(std::forward<Callable>(f), unwrap_args<Args...>(ctx, argc, argv));
             return JS_NULL;
         }
         else
         {
             return js_traits<std::decay_t<R>>::wrap(ctx,
                                                     std::apply(std::forward<Callable>(f),
-                                                               unwrap_args<Args...>(ctx, argv)));
+                                                               unwrap_args<Args...>(ctx, argc, argv)));
         }
     }
     catch(exception)
@@ -543,14 +556,14 @@ JSValue wrap_call(JSContext * ctx, Callable&& f, JSValueConst * argv) noexcept
  * @tparam FirstArg type of this_value
  */
 template <typename R, typename FirstArg, typename... Args, typename Callable>
-JSValue wrap_this_call(JSContext * ctx, Callable&& f, JSValueConst this_value, JSValueConst * argv) noexcept
+JSValue wrap_this_call(JSContext * ctx, Callable&& f, JSValueConst this_value, int argc, JSValueConst * argv) noexcept
 {
     try
     {
         if constexpr(std::is_same_v<R, void>)
         {
-            std::apply(std::forward<Callable>(f), std::tuple_cat(unwrap_args<FirstArg>(ctx, &this_value),
-                                                                 unwrap_args<Args...>(ctx, argv)));
+            std::apply(std::forward<Callable>(f), std::tuple_cat(unwrap_args<FirstArg>(ctx, 1, &this_value),
+                                                                 unwrap_args<Args...>(ctx, argc, argv)));
             return JS_NULL;
         }
         else
@@ -558,8 +571,8 @@ JSValue wrap_this_call(JSContext * ctx, Callable&& f, JSValueConst this_value, J
             return js_traits<std::decay_t<R>>::wrap(ctx,
                                                     std::apply(std::forward<Callable>(f),
                                                                std::tuple_cat(
-                                                                       unwrap_args<FirstArg>(ctx, &this_value),
-                                                                       unwrap_args<Args...>(ctx, argv))));
+                                                                       unwrap_args<FirstArg>(ctx, 1, &this_value),
+                                                                       unwrap_args<Args...>(ctx, argc, argv))));
         }
     }
     catch(exception)
@@ -607,9 +620,9 @@ struct js_traits<fwrapper<F, PassThis>>
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
             if constexpr(PassThis)
-                return detail::wrap_this_call<R, Args...>(ctx, F, this_value, argv);
+                return detail::wrap_this_call<R, Args...>(ctx, F, this_value, argc, argv);
             else
-                return detail::wrap_call<R, Args...>(ctx, F, argv);
+                return detail::wrap_call<R, Args...>(ctx, F, argc, argv);
         }, fw.name, sizeof...(Args));
 
     }
@@ -623,7 +636,7 @@ struct js_traits<fwrapper<F, PassThis>>
     {
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argv);
+            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argc, argv);
         }, fw.name, sizeof...(Args));
 
     }
@@ -637,7 +650,7 @@ struct js_traits<fwrapper<F, PassThis>>
     {
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argv);
+            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argc, argv);
         }, fw.name, sizeof...(Args));
 
     }
@@ -683,9 +696,14 @@ struct js_traits<ctor_wrapper<T, Args...>>
             if(JS_IsException(jsobj))
                 return jsobj;
 
-            std::shared_ptr<T> ptr = std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argv));
-            JS_SetOpaque(jsobj, new std::shared_ptr<T>(std::move(ptr)));
-            return jsobj;
+            try {
+                std::shared_ptr<T> ptr = std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argc, argv));
+                JS_SetOpaque(jsobj, new std::shared_ptr<T>(std::move(ptr)));
+                return jsobj;
+            } catch (exception) {
+                JS_FreeValue(ctx, jsobj);
+                return JS_EXCEPTION;
+            }
 
             // return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
         }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
@@ -1561,7 +1579,7 @@ struct js_traits<std::function<R(Args...)>>
         fptr->invoker = [](function * self, JSContext * ctx, JSValueConst this_value, int argc, JSValueConst * argv) {
             assert(self);
             auto f = reinterpret_cast<Functor *>(&self->functor);
-            return detail::wrap_call<R, Args...>(ctx, *f, argv);
+            return detail::wrap_call<R, Args...>(ctx, *f, argc, argv);
         };
         JS_SetOpaque(obj, fptr);
         return obj;
