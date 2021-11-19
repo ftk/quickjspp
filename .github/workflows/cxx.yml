@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [linux-gcc, linux-clang, linux-gcc9, linux-clang9, windows-gcc, linux-gcc-ubsan, linux-gcc-asan, linux-gcc-32, linux-gcc-x32]
+        compiler: [linux-gcc,linux-clang,linux-gcc8,linux-gcc10,linux-gcc-ubsan,linux-gcc-asan,linux-gcc-32,linux-gcc-x32,linux-clang11,linux-clang12,windows-gcc,macos-clang]
         build_type: [Debug]
         include:
           - compiler: linux-gcc
@@ -18,10 +18,15 @@ jobs:
             os: ubuntu-latest
             cmake_opts: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 
-          - compiler: linux-gcc9
+          - compiler: linux-gcc8
             os: ubuntu-18.04
-            preconfigure: sudo apt-get update && sudo apt-get install -y gcc-9 g++-9
-            cmake_opts: -DCMAKE_C_COMPILER=gcc-9 -DCMAKE_CXX_COMPILER=g++-9
+            preconfigure: sudo apt-get update && sudo apt-get install -y gcc-8 g++-8
+            cmake_opts: -DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8
+
+          - compiler: linux-gcc10
+            os: ubuntu-20.04
+            preconfigure: sudo apt-get update && sudo apt-get install -y gcc-10 g++-10
+            cmake_opts: -DCMAKE_C_COMPILER=gcc-10 -DCMAKE_CXX_COMPILER=g++-10
 
           - compiler: linux-gcc-ubsan
             os: ubuntu-latest
@@ -35,17 +40,23 @@ jobs:
             os: ubuntu-latest
             preconfigure: sudo apt-get update && sudo apt-get install gcc-multilib g++-multilib
             cflags: -m32
-            
+
           - compiler: linux-gcc-x32
             os: ubuntu-latest
             preconfigure: sudo apt-get update && sudo apt-get install gcc-multilib g++-multilib
             cflags: -mx32
 
-          - compiler: linux-clang9
-            os: ubuntu-18.04
-            preconfigure: sudo apt-get update && sudo apt-get install -y clang-9 libc++-9-dev libc++abi-9-dev
-            cmake_opts: -DCMAKE_C_COMPILER=clang-9 -DCMAKE_CXX_COMPILER=clang++-9
-            #cflags: -stdlib=libc++
+          - compiler: linux-clang11
+            os: ubuntu-20.04
+            preconfigure: sudo apt-get update && sudo apt-get install -y clang-11 libc++-11-dev libc++abi-11-dev
+            cmake_opts: -DCMAKE_C_COMPILER=clang-11 -DCMAKE_CXX_COMPILER=clang++-11
+            cflags: -stdlib=libc++
+
+          - compiler: linux-clang12
+            os: ubuntu-20.04
+            preconfigure: sudo apt-get update && sudo apt-get install -y clang-12 libc++-12-dev libc++abi-12-dev
+            cmake_opts: -DCMAKE_C_COMPILER=clang-12 -DCMAKE_CXX_COMPILER=clang++-12
+            cflags: -stdlib=libc++
 
 #          - compiler: windows-msvs # not supported
 #            os: windows-latest
@@ -54,11 +65,13 @@ jobs:
             os: windows-2019
             cmake_opts: -G "MSYS Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
 
-#          - compiler: macos-clang # libc++ is broken
-#            os: macos-latest
+          - compiler: macos-clang
+            os: macos-latest
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: recursive
     - name: preconfigure
       run: ${{ matrix.preconfigure }}
     - name: configure

@@ -1,0 +1,22 @@
+name: Valgrind
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: install
+        run: sudo apt-get update; sudo apt-get install -y valgrind
+      - name: configure
+        run: echo 'include(Dart)' >> CMakeLists.txt && cmake -S . -B build_dir -Wdev -DCMAKE_BUILD_TYPE=Debug -DMEMORYCHECK_COMMAND_OPTIONS="--leak-check=full --track-origins=yes --error-exitcode=1"
+      - name: build
+        run: cmake --build build_dir --verbose
+      - name: test
+        run: ctest -T memcheck --output-on-failure .
+        working-directory: build_dir
+      - name: logs
+        run: cat build_dir/Testing/Temporary/MemoryChecker.*.log
