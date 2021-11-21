@@ -37,8 +37,8 @@ public:
     { printf("dtor!\n"); }
 
     int32_t fi(TYPES) const { i++; return i; }
-    bool fb(TYPES) noexcept { i++; return b; }
-    double fd(TYPES) const noexcept { i++; return d; }
+    bool fb(TYPES) { i++; return b; }
+    double fd(TYPES) const { i++; return d; }
     const std::shared_ptr<test>& fspt(TYPES) { i++; return spt; }
     const std::string& fs(TYPES) { i++; return s; }
     void f(TYPES) { i++; }
