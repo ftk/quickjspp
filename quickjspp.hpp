@@ -1369,7 +1369,7 @@ public:
         JS_FreeRuntime(rt);
     }
 
-    Context &executePendingJob();
+    Context * executePendingJob();
 
     bool isJobPending() const {
         return JS_IsJobPending(rt);
@@ -1920,14 +1920,16 @@ inline Context & exception::context() const {
     return Context::get(ctx);
 }
 
-inline Context &Runtime::executePendingJob() {
+inline Context * Runtime::executePendingJob() {
     JSContext * ctx;
     auto err = JS_ExecutePendingJob(rt, &ctx);
-    assert(ctx && "The context of the job was NULL");
-    if (err < 0) {
+    if (err == 0) {
+        // There was no job to run
+        return nullptr;
+    } else if (err < 0) {
         throw exception{ctx};
     }
-    return Context::get(ctx);
+    return &Context::get(ctx);
 }
 
 } // namespace qjs
