@@ -40,6 +40,9 @@ int main()
     } catch (qjs::exception const & exc) {
         assert(&exc.context() == &context && "Exception should contain context information");
     }
-
+    // Check that not executed jobs won't introduce memory leaks
+    context.enqueueJob([](){
+        assert(false && "This job will not be called");
+    });
     return 0;
 }
