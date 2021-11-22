@@ -10,7 +10,7 @@ target_compile_definitions(${name}-checkjsv PRIVATE CONFIG_CHECK_JSVALUE=1)
 endmacro()
 
 foreach(test
-        value class exception example multicontext conversions point variant function_call inheritance
+        value class exception example multicontext conversions point variant function_call inheritance jobs
         )
 make_test(${test})
 endforeach()
