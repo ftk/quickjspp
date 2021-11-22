@@ -957,13 +957,9 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
         if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
         {
 #if defined(__cpp_rtti)
-            if constexpr(std::is_same_v<std::decay_t<T> *, JSValue>) {
-                // This needs to be a special case because in `CONFIG_CHECK_JSVALUE` mode
-                // `JSValue` is a pointer to an incomplete type, which doesn't support `typeid`.
-                js_traits<std::shared_ptr<T>>::register_class(ctx, "JSValue");
-            } else {
-                js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
-            }
+            // If you have an error here with T=JSValueConst
+            // it probably means you are passing JSValueConst to where JSValue is expected
+            js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
 #else
             JS_ThrowTypeError(ctx, "quickjspp js_traits<T *>::wrap: Class is not registered");
             return JS_EXCEPTION;
@@ -1602,7 +1598,8 @@ public:
         JS_FreeContext(ctx);
     }
 
-    void enqueueJob(std::function<void()> && job);
+    template <typename Function>
+    void enqueueJob(Function && job);
 
     /** Create module and return a reference to it */
     Module& addModule(const char * name)
@@ -1889,15 +1886,15 @@ property_proxy<Key>::operator Value() const
 }
 }
 
-inline void Context::enqueueJob(std::function<void()> && job_fcn) {
-    // No need to free the new value. It will be freed automatically when
-    // the function is called.
-    JSValueConst job_val = newValue(std::move(job_fcn)).release();
-    JS_EnqueueJob(ctx, [](JSContext *ctx, int argc, JSValueConst *argv){
+template <typename Function>
+void Context::enqueueJob(Function && job) {
+    JSValue job_val = js_traits<std::function<void()>>::wrap(ctx, std::forward<Function>(job));
+    JSValueConst arg = job_val;
+    int err = JS_EnqueueJob(ctx, [](JSContext *ctx, int argc, JSValueConst *argv){
         try
         {
-            // use Value constructor rather than context.newValue to avoid retrieving the Context object.
-            Value{ctx, argv[0]}.as<std::function<void()>>()();
+            assert(argc >= 1);
+            js_traits<std::function<void()>>::unwrap(ctx, argv[0])();
         }
         catch (exception)
         {
@@ -1914,7 +1911,10 @@ inline void Context::enqueueJob(std::function<void()> && job_fcn) {
             return JS_EXCEPTION;
         }
         return JS_UNDEFINED;
-    }, 1, &job_val);
+    }, 1, &arg);
+    JS_FreeValue(ctx, job_val);
+    if(err < 0)
+        throw exception{ctx};
 }
 
 inline Context & exception::context() const {
