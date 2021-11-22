@@ -30,7 +30,7 @@ int test_not_enough_arguments(qjs::Context & ctx) {
                 assert(false);
             } catch (err) {
                 assert(err instanceof TypeError); 
-                assert_eq(err.message, 'Expected type 3 arguments but only 1 were provided');
+                assert_eq(err.message, 'Expected at least 3 arguments but received 1');
             }
         )xxx");
     }
