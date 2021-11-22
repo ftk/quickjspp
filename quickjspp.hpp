@@ -1369,6 +1369,7 @@ public:
         JS_FreeRuntime(rt);
     }
 
+    /// @return pointer to qjs::Context of the executed job or nullptr if no job is pending
     Context * executePendingJob();
 
     bool isJobPending() const {
