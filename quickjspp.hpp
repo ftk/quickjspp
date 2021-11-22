@@ -1916,7 +1916,7 @@ inline void Context::enqueueJob(std::function<void()> && job_fcn) {
     }, 1, &job_val);
 }
 
-Context & exception::context() const {
+inline Context & exception::context() const {
     return Context::get(ctx);
 }
 
