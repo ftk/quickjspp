@@ -571,6 +571,16 @@ JSValue wrap_call(JSContext * ctx, Callable&& f, int argc, JSValueConst * argv) 
     {
         return JS_EXCEPTION;
     }
+    catch (std::exception const & err)
+    {
+        JS_ThrowInternalError(ctx, "%s", err.what());
+        return JS_EXCEPTION;
+    }
+    catch (...)
+    {
+        JS_ThrowInternalError(ctx, "Unknown error");
+        return JS_EXCEPTION;
+    }
 }
 
 /** Same as wrap_call, but pass this_value as first argument.
@@ -598,6 +608,16 @@ JSValue wrap_this_call(JSContext * ctx, Callable&& f, JSValueConst this_value, i
     }
     catch(exception)
     {
+        return JS_EXCEPTION;
+    }
+    catch (std::exception const & err)
+    {
+        JS_ThrowInternalError(ctx, "%s", err.what());
+        return JS_EXCEPTION;
+    }
+    catch (...)
+    {
+        JS_ThrowInternalError(ctx, "Unknown error");
         return JS_EXCEPTION;
     }
 }
@@ -723,12 +743,27 @@ struct js_traits<ctor_wrapper<T, Args...>>
             if(JS_IsException(jsobj))
                 return jsobj;
 
-            try {
+            try
+            {
                 std::shared_ptr<T> ptr = std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argc, argv));
                 JS_SetOpaque(jsobj, new std::shared_ptr<T>(std::move(ptr)));
                 return jsobj;
-            } catch (exception) {
+            }
+            catch (exception)
+            {
                 JS_FreeValue(ctx, jsobj);
+                return JS_EXCEPTION;
+            }
+            catch (std::exception const & err)
+            {
+                JS_FreeValue(ctx, jsobj);
+                JS_ThrowInternalError(ctx, "%s", err.what());
+                return JS_EXCEPTION;
+            }
+            catch (...)
+            {
+                JS_FreeValue(ctx, jsobj);
+                JS_ThrowInternalError(ctx, "Unknown error");
                 return JS_EXCEPTION;
             }
 
@@ -889,8 +924,10 @@ struct js_traits<std::shared_ptr<T>>
                               QJSPP_TYPENAME(T), obj_class_id);
             throw exception{};
         }
-        if(!ptr)
+        if(!ptr) {
+            JS_ThrowInternalError(ctx, "Object's opaque pointer is NULL");
             throw exception{};
+        }
         return ptr;
     }
 };
@@ -1711,6 +1748,16 @@ struct js_traits<std::vector<T>>
         {
             return JS_EXCEPTION;
         }
+        catch (std::exception const & err)
+        {
+            JS_ThrowInternalError(ctx, "%s", err.what());
+            return JS_EXCEPTION;
+        }
+        catch (...)
+        {
+            JS_ThrowInternalError(ctx, "Unknown error");
+            return JS_EXCEPTION;
+        }
     }
 
     static std::vector<T> unwrap(JSContext * ctx, JSValueConst jsarr)
@@ -1745,6 +1792,16 @@ struct js_traits<std::pair<U, V>>
         }
         catch(exception)
         {
+            return JS_EXCEPTION;
+        }
+        catch (std::exception const & err)
+        {
+            JS_ThrowInternalError(ctx, "%s", err.what());
+            return JS_EXCEPTION;
+        }
+        catch (...)
+        {
+            JS_ThrowInternalError(ctx, "Unknown error");
             return JS_EXCEPTION;
         }
     }
