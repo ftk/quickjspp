@@ -28,5 +28,18 @@ int main()
 
     assert(called && "`testFcn` should have been called");
 
+    context.enqueueJob([](){
+        throw std::runtime_error("some error");
+    });
+
+    try {
+        while (runtime.isJobPending()) {
+            runtime.executePendingJob();
+        }
+        assert(false && "Job execution should have failed");
+    } catch (qjs::exception const & exc) {
+        assert(&exc.context() == &context && "Exception should contain context information");
+    }
+
     return 0;
 }

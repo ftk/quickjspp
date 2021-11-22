@@ -1,4 +1,5 @@
 #include "quickjspp.hpp"
+#include <stdexcept>
 #include <variant>
 #include <iostream>
 
@@ -40,7 +41,7 @@ auto f2(var2 v2) -> var
 
 void assert_(bool condition)
 {
-    if(!condition) throw qjs::exception{};
+    if(!condition) throw std::runtime_error("assertion failed");
 }
 
 static void qjs_glue(qjs::Context::Module& m)
