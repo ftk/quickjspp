@@ -1355,6 +1355,8 @@ public:
         rt = JS_NewRuntime();
         if(!rt)
             throw std::runtime_error{"qjs: Cannot create runtime"};
+        
+        JS_SetHostUnhandledPromiseRejectionTracker(rt, promise_unhandled_rejection_tracker, NULL);
     }
 
     // noncopyable
@@ -1371,6 +1373,10 @@ public:
     bool isJobPending() const {
         return JS_IsJobPending(rt);
     }
+
+private:
+    static void promise_unhandled_rejection_tracker(JSContext *ctx, JSValueConst promise,
+                                                    JSValueConst reason, JS_BOOL is_handled, void *opaque);
 };
 
 /** Wrapper over JSContext * ctx
@@ -1597,6 +1603,8 @@ public:
         modules.clear();
         JS_FreeContext(ctx);
     }
+
+    std::function<void(Value)> onUnhandledPromiseRejection;
 
     template <typename Function>
     void enqueueJob(Function && job);
@@ -1919,6 +1927,15 @@ void Context::enqueueJob(Function && job) {
 
 inline Context & exception::context() const {
     return Context::get(ctx);
+}
+
+inline void Runtime::promise_unhandled_rejection_tracker(JSContext *ctx, JSValueConst promise,
+                                                         JSValueConst reason, JS_BOOL is_handled, void *opaque)
+{
+    auto & context = Context::get(ctx);
+    if (context.onUnhandledPromiseRejection) {
+        context.onUnhandledPromiseRejection(context.newValue(JS_DupValue(ctx, reason)));
+    }
 }
 
 inline Context * Runtime::executePendingJob() {

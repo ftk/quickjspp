@@ -9,7 +9,7 @@ target_link_libraries(${name}-checkjsv quickjspp)
 endmacro()
 
 foreach(test
-        value class exception example multicontext conversions point variant function_call inheritance jobs
+        value class exception example multicontext conversions point variant function_call inheritance jobs unhandled_rejection
         )
 make_test(${test})
 endforeach()
