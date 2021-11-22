@@ -506,7 +506,7 @@ struct unwrap_arg_impl {
     static auto unwrap(JSContext * ctx, int argc, JSValueConst * argv)
     {
         if (size_t(argc) <= I) {
-            JS_ThrowTypeError(ctx, "Expected type %lu arguments but only %d were provided",
+            JS_ThrowTypeError(ctx, "Expected at least %lu arguments but received %d",
                               (unsigned long)NArgs, argc);
             throw exception{};
         }
@@ -571,6 +571,16 @@ JSValue wrap_call(JSContext * ctx, Callable&& f, int argc, JSValueConst * argv) 
     {
         return JS_EXCEPTION;
     }
+    catch (std::exception const & err)
+    {
+        JS_ThrowInternalError(ctx, "%s", err.what());
+        return JS_EXCEPTION;
+    }
+    catch (...)
+    {
+        JS_ThrowInternalError(ctx, "Unknown error");
+        return JS_EXCEPTION;
+    }
 }
 
 /** Same as wrap_call, but pass this_value as first argument.
@@ -598,6 +608,16 @@ JSValue wrap_this_call(JSContext * ctx, Callable&& f, JSValueConst this_value, i
     }
     catch(exception)
     {
+        return JS_EXCEPTION;
+    }
+    catch (std::exception const & err)
+    {
+        JS_ThrowInternalError(ctx, "%s", err.what());
+        return JS_EXCEPTION;
+    }
+    catch (...)
+    {
+        JS_ThrowInternalError(ctx, "Unknown error");
         return JS_EXCEPTION;
     }
 }
@@ -723,12 +743,27 @@ struct js_traits<ctor_wrapper<T, Args...>>
             if(JS_IsException(jsobj))
                 return jsobj;
 
-            try {
+            try
+            {
                 std::shared_ptr<T> ptr = std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argc, argv));
                 JS_SetOpaque(jsobj, new std::shared_ptr<T>(std::move(ptr)));
                 return jsobj;
-            } catch (exception) {
+            }
+            catch (exception)
+            {
                 JS_FreeValue(ctx, jsobj);
+                return JS_EXCEPTION;
+            }
+            catch (std::exception const & err)
+            {
+                JS_FreeValue(ctx, jsobj);
+                JS_ThrowInternalError(ctx, "%s", err.what());
+                return JS_EXCEPTION;
+            }
+            catch (...)
+            {
+                JS_FreeValue(ctx, jsobj);
+                JS_ThrowInternalError(ctx, "Unknown error");
                 return JS_EXCEPTION;
             }
 
@@ -838,7 +873,7 @@ struct js_traits<std::shared_ptr<T>>
             int e = JS_NewClass(rt, QJSClassId, &def);
             if(e < 0)
             {
-                JS_ThrowInternalError(ctx, "Cant register class %s", name);
+                JS_ThrowInternalError(ctx, "Can't register class %s", name);
                 throw exception{};
             }
         }
@@ -894,8 +929,10 @@ struct js_traits<std::shared_ptr<T>>
                               QJSPP_TYPENAME(T), obj_class_id);
             throw exception{};
         }
-        if(!ptr)
+        if(!ptr) {
+            JS_ThrowInternalError(ctx, "Object's opaque pointer is NULL");
             throw exception{};
+        }
         return ptr;
     }
 };
@@ -956,18 +993,19 @@ struct function
     template <typename Functor>
     static function * create(JSRuntime * rt, Functor&& f)
     {
-        auto fptr = static_cast<function *>(js_malloc_rt(rt, sizeof(function) + sizeof(Functor)));
+        using Functor_t = std::decay_t<Functor>;
+        auto fptr = static_cast<function *>(js_malloc_rt(rt, sizeof(function) + sizeof(Functor_t)));
         if(!fptr)
             throw std::bad_alloc{};
         new(fptr) function;
-        auto functorptr = reinterpret_cast<Functor *>(fptr->functor);
-        new(functorptr) Functor(std::forward<Functor>(f));
+        auto functorptr = reinterpret_cast<Functor_t *>(fptr->functor);
+        new(functorptr) Functor_t(std::forward<Functor>(f));
         fptr->destroyer = nullptr;
-        if constexpr(!std::is_trivially_destructible_v<Functor>)
+        if constexpr(!std::is_trivially_destructible_v<Functor_t>)
         {
             fptr->destroyer = [](function * fptr) {
-                auto functorptr = static_cast<Functor *>(fptr->functor);
-                functorptr->~Functor();
+                auto functorptr = reinterpret_cast<Functor_t *>(fptr->functor);
+                functorptr->~Functor_t();
             };
         }
         return fptr;
@@ -1683,7 +1721,7 @@ struct js_traits<std::function<R(Args...)>>
         auto fptr = function::create(JS_GetRuntime(ctx), std::forward<Functor>(functor));
         fptr->invoker = [](function * self, JSContext * ctx, JSValueConst this_value, int argc, JSValueConst * argv) {
             assert(self);
-            auto f = reinterpret_cast<Functor *>(&self->functor);
+            auto f = reinterpret_cast<std::decay_t<Functor> *>(&self->functor);
             return detail::wrap_call<R, Args...>(ctx, *f, argc, argv);
         };
         JS_SetOpaque(obj, fptr);
@@ -1706,6 +1744,16 @@ struct js_traits<std::vector<T>>
         }
         catch(exception)
         {
+            return JS_EXCEPTION;
+        }
+        catch (std::exception const & err)
+        {
+            JS_ThrowInternalError(ctx, "%s", err.what());
+            return JS_EXCEPTION;
+        }
+        catch (...)
+        {
+            JS_ThrowInternalError(ctx, "Unknown error");
             return JS_EXCEPTION;
         }
     }
@@ -1742,6 +1790,16 @@ struct js_traits<std::pair<U, V>>
         }
         catch(exception)
         {
+            return JS_EXCEPTION;
+        }
+        catch (std::exception const & err)
+        {
+            JS_ThrowInternalError(ctx, "%s", err.what());
+            return JS_EXCEPTION;
+        }
+        catch (...)
+        {
+            JS_ThrowInternalError(ctx, "Unknown error");
             return JS_EXCEPTION;
         }
     }
