@@ -52,4 +52,20 @@ int main()
             std::cerr << (std::string)exc["stack"] << std::endl;
     }
 
+    try
+    {
+        qjs::Value caller = context.eval("(f) => f();", "<test>");
+        caller.as<std::function<void(std::function<void()>)>>()([](){
+            throw std::runtime_error("some error");
+        });
+        assert(false);
+    }
+    catch(qjs::exception)
+    {
+        auto exc = context.getException();
+        std::cerr << (exc.isError() ? "Error: " : "Throw: ") << (std::string)exc << std::endl;
+        if((bool)exc["stack"])
+            std::cerr << (std::string)exc["stack"] << std::endl;
+    }
+
 }
