@@ -7858,6 +7858,8 @@ static JSValue JS_GetPropertyValue(JSContext *ctx, JSValueConst this_obj,
         uint32_t idx, len;
         /* fast path for array access */
         p = JS_VALUE_GET_OBJ(this_obj);
+        if (unlikely(!p->fast_array))
+            goto slow_path;
         idx = JS_VALUE_GET_INT(prop);
         len = (uint32_t)p->u.array.count;
         if (unlikely(idx >= len))
