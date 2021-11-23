@@ -81,11 +81,11 @@ struct js_traits<JSValue>
 };
 
 /** Conversion traits for integers.
+ * Intentionally doesn't define traits for uint64_t since it can be typedefed to JSValue. (@see JS_NAN_BOXING)
  */
 template <typename Int>
-struct js_traits<Int, std::enable_if_t<std::is_integral_v<Int> && sizeof(Int) <= sizeof(int64_t)>>
+struct js_traits<Int, std::enable_if_t<std::is_integral_v<Int> && sizeof(Int) <= sizeof(int64_t) && !std::is_same_v<Int, uint64_t>>>
 {
-
     /// @throws exception
     static Int unwrap(JSContext * ctx, JSValueConst v)
     {

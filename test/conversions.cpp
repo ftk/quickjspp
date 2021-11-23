@@ -46,8 +46,6 @@ int main()
         test_conv<int64_t>(context, -(1ll << 52) + 1);
         test_conv<int64_t>(context, (1ll << 52));
         test_conv<int64_t>(context, (1ll << 52) - 1);
-        test_conv<uint64_t>(context, (1ll << 52));
-        test_conv<uint64_t>(context, (1ll << 52) - 1);
 
 
         test_num<double>(context);
