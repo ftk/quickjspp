@@ -74,7 +74,7 @@ struct js_traits<JSValue>
         return JS_DupValue(ctx, v);
     }
 
-    static JSValue wrap(JSContext * ctx, JSValue v) noexcept
+    static JSValue wrap(JSContext * ctx, JSValue&& v) noexcept
     {
         return v;
     }
@@ -1192,6 +1192,8 @@ public:
             throw exception{ctx};
     }
 
+    Value(JSValue&& v) : v(std::move(v)), ctx(nullptr) {}
+
     Value(const Value& rhs)
     {
         ctx = rhs.ctx;
@@ -1334,13 +1336,12 @@ public:
     }
 
     std::string
-    toJSON(const Value& replacer = Value{nullptr, JS_UNDEFINED}, const Value& space = Value{nullptr, JS_UNDEFINED})
+    toJSON(const Value& replacer = JS_UNDEFINED, const Value& space = JS_UNDEFINED)
     {
         assert(ctx);
         assert(!replacer.ctx || ctx == replacer.ctx);
         assert(!space.ctx || ctx == space.ctx);
-        JSValue json = JS_JSONStringify(ctx, v, replacer.v, space.v);
-        return (std::string) Value{ctx, json};
+        return (std::string) Value{ctx, JS_JSONStringify(ctx, v, replacer.v, space.v)};
     }
 
 };
@@ -1423,18 +1424,18 @@ public:
                 throw exception{ctx};
         }
 
-        Module& add(const char * name, JSValue value)
+        Module& add(const char * name, JSValue&& value)
         {
-            exports.push_back({name, {ctx, value}});
+            exports.push_back({name, {ctx, std::move(value)}});
             JS_AddModuleExport(ctx, m, name);
             return *this;
         }
 
 
         template <typename T>
-        Module& add(const char * name, T value)
+        Module& add(const char * name, T&& value)
         {
-            return add(name, js_traits<T>::wrap(ctx, std::move(value)));
+            return add(name, js_traits<T>::wrap(ctx, std::forward<T>(value)));
         }
 
         Module(const Module&) = delete;
@@ -1645,29 +1646,30 @@ public:
         js_traits<std::shared_ptr<T>>::register_class(ctx, name, proto);
     }
 
-    Value eval(std::string_view buffer, const char * filename = "<eval>", unsigned eval_flags = 0)
+    /// @see JS_Eval
+    Value eval(std::string_view buffer, const char * filename = "<eval>", int flags = 0)
     {
         assert(buffer.data()[buffer.size()] == '\0' && "eval buffer is not null-terminated"); // JS_Eval requirement
-        JSValue v = JS_Eval(ctx, buffer.data(), buffer.size(), filename, eval_flags);
-        return Value{ctx, v};
+        JSValue v = JS_Eval(ctx, buffer.data(), buffer.size(), filename, flags);
+        return Value{ctx, std::move(v)};
     }
 
-    Value evalFile(const char * filename, unsigned eval_flags = 0)
+    Value evalFile(const char * filename, int flags = 0)
     {
         size_t buf_len;
         auto deleter = [this](void * p) { js_free(ctx, p); };
         auto buf = std::unique_ptr<uint8_t, decltype(deleter)>{js_load_file(ctx, &buf_len, filename), deleter};
         if(!buf)
             throw std::runtime_error{std::string{"evalFile: can't read file: "} + filename};
-        return eval({reinterpret_cast<char *>(buf.get()), buf_len}, filename, eval_flags);
+        return eval({reinterpret_cast<char *>(buf.get()), buf_len}, filename, flags);
     }
 
-    Value fromJSON(std::string_view buffer, const char * filename = "<fromJSON>")
+    /// @see JS_ParseJSON2
+    Value fromJSON(std::string_view buffer, const char * filename = "<fromJSON>", int flags = 0)
     {
         assert(buffer.data()[buffer.size()] == '\0' &&
                "fromJSON buffer is not null-terminated"); // JS_ParseJSON requirement
-        JSValue v = JS_ParseJSON(ctx, buffer.data(), buffer.size(), filename);
-        return Value{ctx, v};
+        return Value{ctx, JS_ParseJSON2(ctx, buffer.data(), buffer.size(), filename, flags)};
     }
 
     /** Get qjs::Context from JSContext opaque pointer */
