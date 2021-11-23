@@ -1113,6 +1113,9 @@ struct js_property_traits<uint32_t>
     }
 };
 
+template <>
+struct js_property_traits<int> : js_property_traits<uint32_t> {};
+
 
 namespace detail {
 template <typename Key>
@@ -1136,13 +1139,24 @@ struct property_proxy
     /** Implicit converion to qjs::Value */
     operator Value() const; // defined later due to Value being incomplete type
 
-    template <typename Value>
-    property_proxy& operator =(Value value)
+    /// noncopyable
+    property_proxy& operator =(property_proxy) = delete;
+
+    template <typename T>
+    property_proxy& operator =(T&& value)
     {
         js_property_traits<Key>::set_property(ctx, this_obj, key,
-                                              js_traits<Value>::wrap(ctx, std::move(value)));
+                                              js_traits<std::decay_t<T>>::wrap(ctx, std::forward<T>(value)));
         return *this;
     }
+
+    template <typename Key2>
+    property_proxy<Key2> operator[](Key2 key2) const
+    {
+        return {ctx, as<JSValue>(), std::move(key2)};
+    }
+
+    ~property_proxy() noexcept { JS_FreeValue(ctx, this_obj); }
 };
 
 
@@ -1262,7 +1276,8 @@ public:
     template <typename Key>
     detail::property_proxy<Key> operator [](Key key)
     {
-        return {ctx, v, std::move(key)};
+        assert(ctx && "Trying to access properties of Value with no JSContext");
+        return {ctx, JS_DupValue(ctx, v), std::move(key)};
     }
 
 
