@@ -29,6 +29,7 @@
 namespace qjs {
 
 class Context;
+class Value;
 
 /** Exception type.
  * Indicates that exception has occured in JS context.
@@ -38,6 +39,9 @@ class exception {
 public:
     exception(JSContext * ctx) : ctx(ctx) {}
     Context & context() const;
+
+    /// Clears and returns the occurred exception.
+    Value get();
 };
 
 /** Javascript conversion traits.
@@ -1109,7 +1113,6 @@ struct js_property_traits<uint32_t>
     }
 };
 
-class Value;
 
 namespace detail {
 template <typename Key>
@@ -1355,7 +1358,7 @@ public:
         rt = JS_NewRuntime();
         if(!rt)
             throw std::runtime_error{"qjs: Cannot create runtime"};
-        
+
         JS_SetHostUnhandledPromiseRejectionTracker(rt, promise_unhandled_rejection_tracker, NULL);
     }
 
@@ -1627,7 +1630,7 @@ public:
     template <typename T>
     Value newValue(T&& val) { return Value{ctx, std::forward<T>(val)}; }
 
-    /** returns current exception associated with context, and resets it. Should be called when qjs::exception is caught */
+    /** returns current exception associated with context and clears it. Should be called when qjs::exception is caught */
     Value getException() { return Value{ctx, JS_GetException(ctx)}; }
 
     /** Register class T for conversions to/from std::shared_ptr<T> to work.
@@ -1930,6 +1933,10 @@ inline Context & exception::context() const {
     return Context::get(ctx);
 }
 
+inline Value exception::get() {
+    return context().getException();
+}
+
 inline void Runtime::promise_unhandled_rejection_tracker(JSContext *ctx, JSValueConst promise,
                                                          JSValueConst reason, JS_BOOL is_handled, void *opaque)
 {
@@ -1938,6 +1945,7 @@ inline void Runtime::promise_unhandled_rejection_tracker(JSContext *ctx, JSValue
         context.onUnhandledPromiseRejection(context.newValue(JS_DupValue(ctx, reason)));
     }
 }
+
 
 inline Context * Runtime::executePendingJob() {
     JSContext * ctx;

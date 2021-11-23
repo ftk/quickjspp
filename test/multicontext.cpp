@@ -35,9 +35,9 @@ int main()
                      , "<eval>", JS_EVAL_TYPE_MODULE
         );
     }
-    catch(qjs::exception)
+    catch(qjs::exception e)
     {
-        auto exc = context1.getException();
+        auto exc = e.get();
         std::cerr << (std::string) exc << std::endl;
         if((bool) exc["stack"])
             std::cerr << (std::string) exc["stack"] << std::endl;
@@ -51,9 +51,9 @@ int main()
                       ,"<eval>", JS_EVAL_TYPE_MODULE
         );
     }
-    catch(qjs::exception)
+    catch(qjs::exception e)
     {
-        auto exc = context2.getException();
+        auto exc = e.get();
         std::cerr << (std::string) exc << std::endl;
         if((bool) exc["stack"])
             std::cerr << (std::string) exc["stack"] << std::endl;
