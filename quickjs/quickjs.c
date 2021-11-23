@@ -282,6 +282,9 @@ struct JSRuntime {
 
     JSHostPromiseRejectionTracker *host_promise_rejection_tracker;
     void *host_promise_rejection_tracker_opaque;
+
+    JSHostPromiseRejectionTracker *host_unhandled_promise_rejection_tracker;
+    void *host_unhandled_promise_rejection_tracker_opaque;
     
     struct list_head job_list; /* list of JSJobEntry.link */
 
@@ -46255,6 +46258,7 @@ typedef struct JSPromiseData {
     struct list_head promise_reactions[2];
     BOOL is_handled; /* Note: only useful to debug */
     JSValue promise_result;
+    JSContext * ctx;
 } JSPromiseData;
 
 typedef struct JSPromiseFunctionDataResolved {
@@ -46333,6 +46337,14 @@ void JS_SetHostPromiseRejectionTracker(JSRuntime *rt,
 {
     rt->host_promise_rejection_tracker = cb;
     rt->host_promise_rejection_tracker_opaque = opaque;
+}
+
+void JS_SetHostUnhandledPromiseRejectionTracker(JSRuntime *rt,
+                                       JSHostPromiseRejectionTracker *cb,
+                                       void *opaque)
+{
+    rt->host_unhandled_promise_rejection_tracker = cb;
+    rt->host_unhandled_promise_rejection_tracker_opaque = opaque;
 }
 
 static void fulfill_or_reject_promise(JSContext *ctx, JSValueConst promise,
@@ -46539,6 +46551,14 @@ static void js_promise_finalizer(JSRuntime *rt, JSValue val)
 
     if (!s)
         return;
+
+    if (s->promise_state == JS_PROMISE_REJECTED && !s->is_handled) {
+        if (rt->host_unhandled_promise_rejection_tracker) {
+            rt->host_unhandled_promise_rejection_tracker(s->ctx, val, s->promise_result, FALSE,
+                                                         rt->host_unhandled_promise_rejection_tracker_opaque);
+        }
+    }
+
     for(i = 0; i < 2; i++) {
         list_for_each_safe(el, el1, &s->promise_reactions[i]) {
             JSPromiseReactionData *rd =
@@ -46589,6 +46609,7 @@ static JSValue js_promise_constructor(JSContext *ctx, JSValueConst new_target,
     s = js_mallocz(ctx, sizeof(*s));
     if (!s)
         goto fail;
+    s->ctx = ctx;
     s->promise_state = JS_PROMISE_PENDING;
     s->is_handled = FALSE;
     for(i = 0; i < 2; i++)
