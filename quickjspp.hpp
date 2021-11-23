@@ -28,11 +28,17 @@
 
 namespace qjs {
 
+class Context;
 
 /** Exception type.
  * Indicates that exception has occured in JS context.
  */
-class exception {};
+class exception {
+    JSContext * ctx;
+public:
+    exception(JSContext * ctx) : ctx(ctx) {}
+    Context & context() const;
+};
 
 /** Javascript conversion traits.
  * Describes how to convert type R to/from JSValue. Second template argument can be used for SFINAE/enable_if type filters.
@@ -83,14 +89,14 @@ struct js_traits<Int, std::enable_if_t<std::is_integral_v<Int> && sizeof(Int) <=
         {
             int64_t r;
             if(JS_ToInt64(ctx, &r, v))
-                throw exception{};
+                throw exception{ctx};
             return static_cast<Int>(r);
         }
         else
         {
             int32_t r;
             if(JS_ToInt32(ctx, &r, v))
-                throw exception{};
+                throw exception{ctx};
             return static_cast<Int>(r);
         }
     }
@@ -130,7 +136,7 @@ struct js_traits<void>
     static void unwrap(JSContext * ctx, JSValueConst value)
     {
         if(JS_IsException(value))
-            throw exception{};
+            throw exception{ctx};
     }
 };
 
@@ -144,7 +150,7 @@ struct js_traits<double>
     {
         double r;
         if(JS_ToFloat64(ctx, &r, v))
-            throw exception{};
+            throw exception{ctx};
         return r;
     }
 
@@ -195,7 +201,7 @@ struct js_traits<std::string_view>
         size_t plen;
         const char * ptr = JS_ToCStringLen(ctx, &plen, v);
         if(!ptr)
-            throw exception{};
+            throw exception{ctx};
         return detail::js_string{ctx, ptr, plen};
     }
 
@@ -353,7 +359,7 @@ struct js_traits<std::variant<Ts...>>
             return unwrapPriority<Traits...>(ctx, v);
         }
         JS_ThrowTypeError(ctx, "Expected type %s", QJSPP_TYPENAME(std::variant<Ts...>));
-        throw exception{};
+        throw exception{ctx};
     }
 
     template <typename T>
@@ -463,7 +469,7 @@ struct js_traits<std::variant<Ts...>>
                 return unwrapPriority<is_double, std::is_floating_point>(ctx, v);
         }
 
-        throw exception{};
+        throw exception{ctx};
     }
 };
 
@@ -508,7 +514,7 @@ struct unwrap_arg_impl {
         if (size_t(argc) <= I) {
             JS_ThrowTypeError(ctx, "Expected at least %lu arguments but received %d",
                               (unsigned long)NArgs, argc);
-            throw exception{};
+            throw exception{ctx};
         }
         return js_traits<std::decay_t<T>>::unwrap(ctx, argv[I]);
     }
@@ -874,7 +880,7 @@ struct js_traits<std::shared_ptr<T>>
             if(e < 0)
             {
                 JS_ThrowInternalError(ctx, "Can't register class %s", name);
-                throw exception{};
+                throw exception{ctx};
             }
         }
         JS_SetClassProto(ctx, QJSClassId, proto);
@@ -927,11 +933,11 @@ struct js_traits<std::shared_ptr<T>>
             // The JS object does not derives from T
             JS_ThrowTypeError(ctx, "Expected type %s, got object with classid %d",
                               QJSPP_TYPENAME(T), obj_class_id);
-            throw exception{};
+            throw exception{ctx};
         }
         if(!ptr) {
             JS_ThrowInternalError(ctx, "Object's opaque pointer is NULL");
-            throw exception{};
+            throw exception{ctx};
         }
         return ptr;
     }
@@ -951,6 +957,8 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
         if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
         {
 #if defined(__cpp_rtti)
+            // If you have an error here with T=JSValueConst
+            // it probably means you are passing JSValueConst to where JSValue is expected
             js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
 #else
             JS_ThrowTypeError(ctx, "quickjspp js_traits<T *>::wrap: Class is not registered");
@@ -1076,7 +1084,7 @@ struct js_property_traits<const char *>
     {
         int err = JS_SetPropertyStr(ctx, this_obj, name, value);
         if(err < 0)
-            throw exception{};
+            throw exception{ctx};
     }
 
     static JSValue get_property(JSContext * ctx, JSValue this_obj, const char * name) noexcept
@@ -1092,7 +1100,7 @@ struct js_property_traits<uint32_t>
     {
         int err = JS_SetPropertyUint32(ctx, this_obj, idx, value);
         if(err < 0)
-            throw exception{};
+            throw exception{ctx};
     }
 
     static JSValue get_property(JSContext * ctx, JSValue this_obj, uint32_t idx) noexcept
@@ -1178,7 +1186,7 @@ public:
     {
         v = js_traits<std::decay_t<T>>::wrap(ctx, std::forward<T>(val));
         if(JS_IsException(v))
-            throw exception{};
+            throw exception{ctx};
     }
 
     Value(const Value& rhs)
@@ -1286,7 +1294,7 @@ public:
         );
         JS_FreeAtom(ctx, prop);
         if(ret < 0)
-            throw exception{};
+            throw exception{ctx};
         return *this;
     }
 
@@ -1303,7 +1311,7 @@ public:
         );
         JS_FreeAtom(ctx, prop);
         if(ret < 0)
-            throw exception{};
+            throw exception{ctx};
         return *this;
     }
 
@@ -1356,6 +1364,13 @@ public:
     {
         JS_FreeRuntime(rt);
     }
+
+    /// @return pointer to qjs::Context of the executed job or nullptr if no job is pending
+    Context * executePendingJob();
+
+    bool isJobPending() const {
+        return JS_IsJobPending(rt);
+    }
 };
 
 /** Wrapper over JSContext * ctx
@@ -1396,7 +1411,7 @@ public:
                 return 0;
             });
             if(!m)
-                throw exception{};
+                throw exception{ctx};
         }
 
         Module& add(const char * name, JSValue value)
@@ -1528,7 +1543,7 @@ public:
                 int err = JS_SetPrototype(context.ctx, prototype.v, base_proto);
                 JS_FreeValue(context.ctx, base_proto);
                 if(err < 0)
-                    throw exception{};
+                    throw exception{context.ctx};
                 return *this;
             }
 
@@ -1582,6 +1597,9 @@ public:
         modules.clear();
         JS_FreeContext(ctx);
     }
+
+    template <typename Function>
+    void enqueueJob(Function && job);
 
     /** Create module and return a reference to it */
     Module& addModule(const char * name)
@@ -1678,19 +1696,19 @@ struct js_traits<std::function<R(Args...)>>
         const int argc = sizeof...(Args);
         if constexpr(argc == 0)
         {
-            return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}]() -> R {
+            return [ctx, jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}]() -> R {
                 JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, 0, nullptr);
                 if(JS_IsException(result))
                 {
                     JS_FreeValue(jsfun_obj.ctx, result);
-                    throw exception{};
+                    throw exception{ctx};
                 }
                 return detail::unwrap_free<R>(jsfun_obj.ctx, result);
             };
         }
         else
         {
-            return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
+            return [ctx, jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
                 const int argc = sizeof...(Args);
                 JSValue argv[argc];
                 detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
@@ -1700,7 +1718,7 @@ struct js_traits<std::function<R(Args...)>>
                 if(JS_IsException(result))
                 {
                     JS_FreeValue(jsfun_obj.ctx, result);
-                    throw exception{};
+                    throw exception{ctx};
                 }
                 return detail::unwrap_free<R>(jsfun_obj.ctx, result);
             };
@@ -1764,7 +1782,7 @@ struct js_traits<std::vector<T>>
         if(e == 0)
             JS_ThrowTypeError(ctx, "js_traits<std::vector<T>>::unwrap expects array");
         if(e <= 0)
-            throw exception{};
+            throw exception{ctx};
         Value jsarray{ctx, JS_DupValue(ctx, jsarr)};
         std::vector<T> arr;
         auto len = static_cast<int32_t>(jsarray["length"]);
@@ -1810,14 +1828,14 @@ struct js_traits<std::pair<U, V>>
         if(e == 0)
             JS_ThrowTypeError(ctx, "js_traits<%s>::unwrap expects array", QJSPP_TYPENAME(std::pair<U, V>));
         if(e <= 0)
-            throw exception{};
+            throw exception{ctx};
         Value jsarray{ctx, JS_DupValue(ctx, jsarr)};
         const auto len = static_cast<uint32_t>(jsarray["length"]);
         if(len != 2)
         {
             JS_ThrowTypeError(ctx, "js_traits<%s>::unwrap expected array of length 2, got length %d",
                               QJSPP_TYPENAME(std::pair<U, V>), len);
-            throw exception{};
+            throw exception{ctx};
         }
         return std::pair<U, V>{
                 static_cast<U>(jsarray[uint32_t(0)]),
@@ -1866,6 +1884,53 @@ property_proxy<Key>::operator Value() const
 {
     return as<Value>();
 }
+}
+
+template <typename Function>
+void Context::enqueueJob(Function && job) {
+    JSValue job_val = js_traits<std::function<void()>>::wrap(ctx, std::forward<Function>(job));
+    JSValueConst arg = job_val;
+    int err = JS_EnqueueJob(ctx, [](JSContext *ctx, int argc, JSValueConst *argv){
+        try
+        {
+            assert(argc >= 1);
+            js_traits<std::function<void()>>::unwrap(ctx, argv[0])();
+        }
+        catch (exception)
+        {
+            return JS_EXCEPTION;
+        }
+        catch (std::exception const & err)
+        {
+            JS_ThrowInternalError(ctx, "%s", err.what());
+            return JS_EXCEPTION;
+        }
+        catch (...)
+        {
+            JS_ThrowInternalError(ctx, "Unknown error");
+            return JS_EXCEPTION;
+        }
+        return JS_UNDEFINED;
+    }, 1, &arg);
+    JS_FreeValue(ctx, job_val);
+    if(err < 0)
+        throw exception{ctx};
+}
+
+inline Context & exception::context() const {
+    return Context::get(ctx);
+}
+
+inline Context * Runtime::executePendingJob() {
+    JSContext * ctx;
+    auto err = JS_ExecutePendingJob(rt, &ctx);
+    if (err == 0) {
+        // There was no job to run
+        return nullptr;
+    } else if (err < 0) {
+        throw exception{ctx};
+    }
+    return &Context::get(ctx);
 }
 
 } // namespace qjs
