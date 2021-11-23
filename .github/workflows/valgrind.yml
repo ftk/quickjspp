@@ -20,3 +20,4 @@ jobs:
         working-directory: build_dir
       - name: logs
         run: cat build_dir/Testing/Temporary/MemoryChecker.*.log
+        if: always()
