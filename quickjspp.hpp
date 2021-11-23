@@ -1604,6 +1604,7 @@ public:
         JS_FreeContext(ctx);
     }
 
+    /** Callback triggered when a Promise rejection won't ever be handled */
     std::function<void(Value)> onUnhandledPromiseRejection;
 
     template <typename Function>
