@@ -19,6 +19,7 @@
 #include <fstream>
 #include <ios>
 #include <sstream>
+#include <filesystem>
 
 
 #if defined(__cpp_rtti)
@@ -1404,6 +1405,33 @@ private:
                                       const char *module_name, void *opaque);
 };
 
+namespace detail {
+
+inline std::optional<std::string> readFile(std::filesystem::path const & filepath)
+{
+    if (!std::filesystem::exists(filepath)) return std::nullopt;
+    std::ifstream f(filepath, std::ios::in | std::ios::binary);
+    if (!f.is_open()) return std::nullopt;
+    std::stringstream sstream;
+    sstream << f.rdbuf();
+    return sstream.str();
+}
+
+inline std::string toUri(std::string_view filename) {
+    auto fname = std::string{filename};
+    if (fname.find("://") < fname.find("/")) return fname;
+
+    auto fpath = std::filesystem::path(fname);
+    if (!fpath.is_absolute()) {
+        fpath = "." / fpath;
+    }
+    fpath = std::filesystem::weakly_canonical(fpath);
+    fname = "file://" + fpath.generic_string();
+    return fname;
+}
+
+}
+
 /** Wrapper over JSContext * ctx
  * Calls JS_SetContextOpaque(ctx, this); on construction and JS_FreeContext on destruction
  */
@@ -1635,21 +1663,16 @@ public:
     /** Data type returned by the moduleLoader function */
     struct ModuleData {
         std::optional<std::string> source, url;
-        ModuleData()
-          : source(std::nullopt), url(std::nullopt)
-        {}
-        ModuleData(std::string source)
-          : source(std::move(source)), url(std::nullopt)
-        {}
-        ModuleData(std::string url, std::string source)
-          : source(std::move(source)), url(std::move(url))
-        {}
+        ModuleData() : source(std::nullopt), url(std::nullopt) {}
+        ModuleData(std::optional<std::string> source) : source(std::move(source)), url(std::nullopt) {}
+        ModuleData(std::optional<std::string> url, std::optional<std::string> source) : source(std::move(source)), url(std::move(url)) {}
     };
 
-    /** Function called to obtain the source of a nodule */
-    std::function<ModuleData(std::string_view)> moduleLoader = [](std::string_view filename){
-        return readFile(filename.data());
-    };
+    /** Function called to obtain the source of a module */
+    std::function<ModuleData(std::string_view)> moduleLoader =
+        [](std::string_view filename) -> ModuleData {
+            return ModuleData{ detail::toUri(filename), detail::readFile(filename) };
+        };
 
     template <typename Function>
     void enqueueJob(Function && job);
@@ -1696,7 +1719,10 @@ public:
 
     Value evalFile(const char * filename, int flags = 0)
     {
-        return eval(readFile(filename), filename, flags);
+        auto buf = detail::readFile(filename);
+        if (!buf)
+            throw std::runtime_error{std::string{"evalFile: can't read file: "} + filename};
+        return eval(*buf, filename, flags);
     }
 
     /// @see JS_ParseJSON2
@@ -1713,14 +1739,6 @@ public:
         void * ptr = JS_GetContextOpaque(ctx);
         assert(ptr);
         return *static_cast<Context *>(ptr);
-    }
-
-    static std::string readFile(const char * filename)
-    {
-        std::ifstream f(filename, std::ios::in | std::ios::binary);
-        std::stringstream sstream;
-        sstream << f.rdbuf();
-        return sstream.str();
     }
 };
 
@@ -2008,8 +2026,9 @@ inline JSModuleDef * Runtime::module_loader(JSContext *ctx,
         if (!data.url) data.url = module_name;
 
         // compile the module
-        auto func_val = context.eval(*data.source, data.url->c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
-        JSModuleDef * m = (JSModuleDef *)JS_VALUE_GET_PTR(func_val.v);
+        auto func_val = context.eval(*data.source, module_name, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        assert(JS_VALUE_GET_TAG(func_val.v) == JS_TAG_MODULE);
+        JSModuleDef * m = reinterpret_cast<JSModuleDef *>(JS_VALUE_GET_PTR(func_val.v));
 
         // set import.meta
         auto meta = context.newValue(JS_GetImportMeta(ctx, m));
