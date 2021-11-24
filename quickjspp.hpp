@@ -1,7 +1,6 @@
 #pragma once
 
 #include "quickjs/quickjs.h"
-#include "quickjs/quickjs-libc.h"
 
 #include <vector>
 #include <string_view>
@@ -17,6 +16,9 @@
 #include <optional>
 #include <type_traits>
 #include <unordered_map>
+#include <fstream>
+#include <ios>
+#include <sstream>
 
 
 #if defined(__cpp_rtti)
@@ -1671,12 +1673,7 @@ public:
 
     Value evalFile(const char * filename, int flags = 0)
     {
-        size_t buf_len;
-        auto deleter = [this](void * p) { js_free(ctx, p); };
-        auto buf = std::unique_ptr<uint8_t, decltype(deleter)>{js_load_file(ctx, &buf_len, filename), deleter};
-        if(!buf)
-            throw std::runtime_error{std::string{"evalFile: can't read file: "} + filename};
-        return eval({reinterpret_cast<char *>(buf.get()), buf_len}, filename, flags);
+        return eval(load_file(filename), filename, flags);
     }
 
     /// @see JS_ParseJSON2
@@ -1693,6 +1690,15 @@ public:
         void * ptr = JS_GetContextOpaque(ctx);
         assert(ptr);
         return *static_cast<Context *>(ptr);
+    }
+
+private:
+    static std::string load_file(const char * filename)
+    {
+        std::ifstream f(filename, std::ios::in | std::ios::binary);
+        std::stringstream sstream;
+        sstream << f.rdbuf();
+        return sstream.str();
     }
 };
 
