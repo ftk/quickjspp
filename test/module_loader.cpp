@@ -65,9 +65,9 @@ int main()
     }
 
     context.moduleLoader = mock_module_loader;
-    context.global().add("log", [](std::string_view s) {
+    context.global()["log"] = [](std::string_view s) {
         std::cout << s << std::endl;
-    });
+    };
 
     // Test a successful import with the mock moduleLoader
     // It pretends to import things from the filesystem and from URLs
