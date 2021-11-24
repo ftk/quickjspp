@@ -41,9 +41,9 @@ int main()
     };
 
     context.moduleLoader = simple_module_loader;
-    context.global().add("log", [](std::string_view s) {
+    context.global()["log"] = [](std::string_view s) {
         std::cout << s << std::endl;
-    });
+    };;
 
     context.eval(R"xxx(
         import "./some_module.js";
