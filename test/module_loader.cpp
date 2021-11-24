@@ -1,30 +1,43 @@
 #include "quickjspp.hpp"
 #include <iostream>
+#include <string_view>
 
 int main()
 {
     qjs::Runtime runtime;
     qjs::Context context(runtime);
 
-    auto simple_module_loader = [](char const * filename) -> qjs::Context::ModuleDataOpt {
-        if (filename == std::string_view("some_module.js")) {
-            return qjs::Context::ModuleData{R"xxx(
+    auto simple_module_loader = [](std::string_view filename) -> qjs::Context::ModuleData {
+        if (filename == "some_module.js") {
+            return {R"xxx(
                 import "folder/file1.js"
                 log(import.meta.url);
             )xxx"};
         }
-        if (filename == std::string_view("folder/file1.js")) {
-            return qjs::Context::ModuleData{R"xxx(
+        if (filename == "folder/file1.js") {
+            return {R"xxx(
                 import "./file2.js"
                 log(import.meta.url);
             )xxx"};
         }
-        if (filename == std::string_view("folder/file2.js")) {
-            return qjs::Context::ModuleData{R"xxx(
+        if (filename == "folder/file2.js") {
+            return {R"xxx(
+                import "http://localhost/script1.js";
                 log(import.meta.url);
             )xxx"};
         }
-        return std::nullopt;
+        if (filename == "http://localhost/script1.js") {
+            return {R"xxx(
+                import "./script2.js";
+                log(import.meta.url);
+            )xxx"};
+        }
+        if (filename == "http://localhost/script2.js") {
+            return {R"xxx(
+                log(import.meta.url);
+            )xxx"};
+        }
+        return {};
     };
 
     context.moduleLoader = simple_module_loader;
@@ -36,7 +49,8 @@ int main()
         import "./some_module.js";
     )xxx", "<eval>", JS_EVAL_TYPE_MODULE);
 
-    try {
+    try
+    {
         context.eval(R"xxx(
             import "./invalid_module.js";
         )xxx", "<eval>", JS_EVAL_TYPE_MODULE);

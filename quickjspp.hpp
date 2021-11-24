@@ -1634,16 +1634,21 @@ public:
 
     /** Data type returned by the moduleLoader function */
     struct ModuleData {
-        std::string source, url;
-        ModuleData(std::string source, std::string url = "")
+        std::optional<std::string> source, url;
+        ModuleData()
+          : source(std::nullopt), url(std::nullopt)
+        {}
+        ModuleData(std::string source)
+          : source(std::move(source)), url(std::nullopt)
+        {}
+        ModuleData(std::string url, std::string source)
           : source(std::move(source)), url(std::move(url))
         {}
     };
-    using ModuleDataOpt = std::optional<ModuleData>;
 
     /** Function called to obtain the source of a nodule */
-    std::function<ModuleDataOpt(char const *)> moduleLoader = [](char const * filename){
-        return readFile(filename);
+    std::function<ModuleData(std::string_view)> moduleLoader = [](std::string_view filename){
+        return readFile(filename.data());
     };
 
     template <typename Function>
@@ -1989,26 +1994,26 @@ inline void Runtime::promise_unhandled_rejection_tracker(JSContext *ctx, JSValue
 inline JSModuleDef * Runtime::module_loader(JSContext *ctx,
                                             const char *module_name, void *opaque)
 {
-    Context::ModuleDataOpt data = std::nullopt;
+    Context::ModuleData data;
     auto & context = Context::get(ctx);
 
     try {
         if (context.moduleLoader) data = context.moduleLoader(module_name);
 
-        if (!data) {
+        if (!data.source) {
             JS_ThrowReferenceError(ctx, "could not load module filename '%s'", module_name);
             return NULL;
         }
 
-        if (data->url == "") data->url = module_name;
+        if (!data.url) data.url = module_name;
 
         // compile the module
-        auto func_val = context.eval(data->source, module_name, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        auto func_val = context.eval(*data.source, data.url->c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
         JSModuleDef * m = (JSModuleDef *)JS_VALUE_GET_PTR(func_val.v);
 
         // set import.meta
         auto meta = context.newValue(JS_GetImportMeta(ctx, m));
-        meta["url"] = data->url;
+        meta["url"] = *data.url;
         meta["main"] = false;
 
         return m;
