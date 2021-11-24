@@ -1,7 +1,6 @@
 #pragma once
 
 #include "quickjs/quickjs.h"
-#include "quickjs/quickjs-libc.h"
 
 #include <vector>
 #include <string_view>
@@ -17,6 +16,10 @@
 #include <optional>
 #include <type_traits>
 #include <unordered_map>
+#include <fstream>
+#include <ios>
+#include <sstream>
+#include <filesystem>
 
 
 #if defined(__cpp_rtti)
@@ -1376,6 +1379,7 @@ public:
             throw std::runtime_error{"qjs: Cannot create runtime"};
 
         JS_SetHostUnhandledPromiseRejectionTracker(rt, promise_unhandled_rejection_tracker, NULL);
+        JS_SetModuleLoaderFunc(rt, nullptr, module_loader, nullptr);
     }
 
     // noncopyable
@@ -1396,7 +1400,37 @@ public:
 private:
     static void promise_unhandled_rejection_tracker(JSContext *ctx, JSValueConst promise,
                                                     JSValueConst reason, JS_BOOL is_handled, void *opaque);
+
+    static JSModuleDef *module_loader(JSContext *ctx,
+                                      const char *module_name, void *opaque);
 };
+
+namespace detail {
+
+inline std::optional<std::string> readFile(std::filesystem::path const & filepath)
+{
+    if (!std::filesystem::exists(filepath)) return std::nullopt;
+    std::ifstream f(filepath, std::ios::in | std::ios::binary);
+    if (!f.is_open()) return std::nullopt;
+    std::stringstream sstream;
+    sstream << f.rdbuf();
+    return sstream.str();
+}
+
+inline std::string toUri(std::string_view filename) {
+    auto fname = std::string{filename};
+    if (fname.find("://") < fname.find("/")) return fname;
+
+    auto fpath = std::filesystem::path(fname);
+    if (!fpath.is_absolute()) {
+        fpath = "." / fpath;
+    }
+    fpath = std::filesystem::weakly_canonical(fpath);
+    fname = "file://" + fpath.generic_string();
+    return fname;
+}
+
+}
 
 /** Wrapper over JSContext * ctx
  * Calls JS_SetContextOpaque(ctx, this); on construction and JS_FreeContext on destruction
@@ -1626,6 +1660,20 @@ public:
     /** Callback triggered when a Promise rejection won't ever be handled */
     std::function<void(Value)> onUnhandledPromiseRejection;
 
+    /** Data type returned by the moduleLoader function */
+    struct ModuleData {
+        std::optional<std::string> source, url;
+        ModuleData() : source(std::nullopt), url(std::nullopt) {}
+        ModuleData(std::optional<std::string> source) : source(std::move(source)), url(std::nullopt) {}
+        ModuleData(std::optional<std::string> url, std::optional<std::string> source) : source(std::move(source)), url(std::move(url)) {}
+    };
+
+    /** Function called to obtain the source of a module */
+    std::function<ModuleData(std::string_view)> moduleLoader =
+        [](std::string_view filename) -> ModuleData {
+            return ModuleData{ detail::toUri(filename), detail::readFile(filename) };
+        };
+
     template <typename Function>
     void enqueueJob(Function && job);
 
@@ -1671,12 +1719,10 @@ public:
 
     Value evalFile(const char * filename, int flags = 0)
     {
-        size_t buf_len;
-        auto deleter = [this](void * p) { js_free(ctx, p); };
-        auto buf = std::unique_ptr<uint8_t, decltype(deleter)>{js_load_file(ctx, &buf_len, filename), deleter};
-        if(!buf)
+        auto buf = detail::readFile(filename);
+        if (!buf)
             throw std::runtime_error{std::string{"evalFile: can't read file: "} + filename};
-        return eval({reinterpret_cast<char *>(buf.get()), buf_len}, filename, flags);
+        return eval(*buf, filename, flags);
     }
 
     /// @see JS_ParseJSON2
@@ -1960,6 +2006,50 @@ inline void Runtime::promise_unhandled_rejection_tracker(JSContext *ctx, JSValue
     auto & context = Context::get(ctx);
     if (context.onUnhandledPromiseRejection) {
         context.onUnhandledPromiseRejection(context.newValue(JS_DupValue(ctx, reason)));
+    }
+}
+
+inline JSModuleDef * Runtime::module_loader(JSContext *ctx,
+                                            const char *module_name, void *opaque)
+{
+    Context::ModuleData data;
+    auto & context = Context::get(ctx);
+
+    try {
+        if (context.moduleLoader) data = context.moduleLoader(module_name);
+
+        if (!data.source) {
+            JS_ThrowReferenceError(ctx, "could not load module filename '%s'", module_name);
+            return NULL;
+        }
+
+        if (!data.url) data.url = module_name;
+
+        // compile the module
+        auto func_val = context.eval(*data.source, module_name, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        assert(JS_VALUE_GET_TAG(func_val.v) == JS_TAG_MODULE);
+        JSModuleDef * m = reinterpret_cast<JSModuleDef *>(JS_VALUE_GET_PTR(func_val.v));
+
+        // set import.meta
+        auto meta = context.newValue(JS_GetImportMeta(ctx, m));
+        meta["url"] = *data.url;
+        meta["main"] = false;
+
+        return m;
+    }
+    catch(exception)
+    {
+        return NULL;
+    }
+    catch (std::exception const & err)
+    {
+        JS_ThrowInternalError(ctx, "%s", err.what());
+        return NULL;
+    }
+    catch (...)
+    {
+        JS_ThrowInternalError(ctx, "Unknown error");
+        return NULL;
     }
 }
 
