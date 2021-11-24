@@ -1378,6 +1378,7 @@ public:
             throw std::runtime_error{"qjs: Cannot create runtime"};
 
         JS_SetHostUnhandledPromiseRejectionTracker(rt, promise_unhandled_rejection_tracker, NULL);
+        JS_SetModuleLoaderFunc(rt, nullptr, module_loader, nullptr);
     }
 
     // noncopyable
@@ -1398,6 +1399,9 @@ public:
 private:
     static void promise_unhandled_rejection_tracker(JSContext *ctx, JSValueConst promise,
                                                     JSValueConst reason, JS_BOOL is_handled, void *opaque);
+
+    static JSModuleDef *module_loader(JSContext *ctx,
+                                      const char *module_name, void *opaque);
 };
 
 /** Wrapper over JSContext * ctx
@@ -1628,6 +1632,20 @@ public:
     /** Callback triggered when a Promise rejection won't ever be handled */
     std::function<void(Value)> onUnhandledPromiseRejection;
 
+    /** Data type returned by the moduleLoader function */
+    struct ModuleData {
+        std::string source, url;
+        ModuleData(std::string source, std::string url = "")
+          : source(std::move(source)), url(std::move(url))
+        {}
+    };
+    using ModuleDataOpt = std::optional<ModuleData>;
+
+    /** Function called to obtain the source of a nodule */
+    std::function<ModuleDataOpt(char const *)> moduleLoader = [](char const * filename){
+        return readFile(filename);
+    };
+
     template <typename Function>
     void enqueueJob(Function && job);
 
@@ -1673,7 +1691,7 @@ public:
 
     Value evalFile(const char * filename, int flags = 0)
     {
-        return eval(load_file(filename), filename, flags);
+        return eval(readFile(filename), filename, flags);
     }
 
     /// @see JS_ParseJSON2
@@ -1692,8 +1710,7 @@ public:
         return *static_cast<Context *>(ptr);
     }
 
-private:
-    static std::string load_file(const char * filename)
+    static std::string readFile(const char * filename)
     {
         std::ifstream f(filename, std::ios::in | std::ios::binary);
         std::stringstream sstream;
@@ -1966,6 +1983,49 @@ inline void Runtime::promise_unhandled_rejection_tracker(JSContext *ctx, JSValue
     auto & context = Context::get(ctx);
     if (context.onUnhandledPromiseRejection) {
         context.onUnhandledPromiseRejection(context.newValue(JS_DupValue(ctx, reason)));
+    }
+}
+
+inline JSModuleDef * Runtime::module_loader(JSContext *ctx,
+                                            const char *module_name, void *opaque)
+{
+    Context::ModuleDataOpt data = std::nullopt;
+    auto & context = Context::get(ctx);
+
+    try {
+        if (context.moduleLoader) data = context.moduleLoader(module_name);
+
+        if (!data) {
+            JS_ThrowReferenceError(ctx, "could not load module filename '%s'", module_name);
+            return NULL;
+        }
+
+        if (data->url == "") data->url = module_name;
+
+        // compile the module
+        auto func_val = context.eval(data->source, module_name, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        JSModuleDef * m = (JSModuleDef *)JS_VALUE_GET_PTR(func_val.v);
+
+        // set import.meta
+        auto meta = context.newValue(JS_GetImportMeta(ctx, m));
+        meta["url"] = data->url;
+        meta["main"] = false;
+
+        return m;
+    }
+    catch(exception)
+    {
+        return NULL;
+    }
+    catch (std::exception const & err)
+    {
+        JS_ThrowInternalError(ctx, "%s", err.what());
+        return NULL;
+    }
+    catch (...)
+    {
+        JS_ThrowInternalError(ctx, "Unknown error");
+        return NULL;
     }
 }
 
