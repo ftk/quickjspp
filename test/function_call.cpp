@@ -6,9 +6,9 @@
 int test_not_enough_arguments(qjs::Context & ctx) {
     std::string msg;
 
-    ctx.global().add("test_fcn", [](int a, int b, int c) {
+    ctx.global()["test_fcn"] = [](int a, int b, int c) {
         return a + b + c;
-    });
+    };
 
     try
     {
@@ -47,19 +47,19 @@ int test_not_enough_arguments(qjs::Context & ctx) {
 }
 
 int test_call_with_rest_parameters(qjs::Context & ctx) {
-    ctx.global().add("test_fcn_rest", [](int a, qjs::rest<int> args) {
+    ctx.global()["test_fcn_rest"] = [](int a, qjs::rest<int> args) {
         for (auto arg : args) {
             a += arg;
         }
         return a;
-    });
+    };
 
-    ctx.global().add("test_fcn_vec", [](int a, std::vector<int> args) {
+    ctx.global()["test_fcn_vec"] = [](int a, std::vector<int> args) {
         for (auto arg : args) {
             a += arg;
         }
         return a;
-    });
+    };
 
     try
     {

@@ -7,9 +7,9 @@ int main()
     qjs::Runtime runtime;
     qjs::Context context(runtime);
     
-    context.global().add("nextTick", [&context](std::function<void()> f) {
+    context.global()["nextTick"] = [&context](std::function<void()> f) {
         context.enqueueJob(std::move(f));
-    });
+    };
 
     bool called = false;
     context.onUnhandledPromiseRejection = [&called](qjs::Value reason) {

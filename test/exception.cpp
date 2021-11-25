@@ -18,7 +18,7 @@ int main()
 {
     qjs::Runtime runtime;
     qjs::Context context(runtime);
-    context.global().add("println", [](const std::string& s) { std::cout << s << std::endl; });
+    context.global()["println"] = [](const std::string& s) { std::cout << s << std::endl; };
 
     context.registerClass<A>("A");
     context.registerClass<A>("A");
@@ -47,7 +47,6 @@ int main()
 
     try
     {
-        //context.global().add("emptyf", [](JSValue v) {} );
         auto f = (std::function<void ()>) context.eval("(function() { +Symbol.toPrimitive })");
         f();
         assert(false);

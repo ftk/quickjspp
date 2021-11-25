@@ -1544,7 +1544,7 @@ public:
             template <typename F>
             class_registrar& fun(const char * name, F&& f)
             {
-                prototype.add(name, std::forward<F>(f));
+                prototype[name] = std::forward<F>(f);
                 return *this;
             }
 
@@ -1764,7 +1764,7 @@ struct js_traits<Value>
  * @tparam Args argument types
  */
 template <typename R, typename... Args>
-struct js_traits<std::function<R(Args...)>>
+struct js_traits<std::function<R(Args...)>, int>
 {
     static auto unwrap(JSContext * ctx, JSValueConst fun_obj)
     {
@@ -1819,6 +1819,39 @@ struct js_traits<std::function<R(Args...)>>
         };
         JS_SetOpaque(obj, fptr);
         return obj;
+    }
+};
+
+namespace detail {
+
+template<typename T, typename = void>
+struct is_callable : std::is_function<T> { };
+
+template<typename T>
+struct is_callable<T, std::enable_if_t<std::is_same_v<decltype(void(&T::operator())), void>>> : std::true_type { };
+
+template<typename T>
+inline constexpr bool is_callable_v = is_callable<T>::value;
+
+}
+
+template <typename Function>
+struct js_traits<Function, std::enable_if_t<detail::is_callable_v<Function>>> {
+    static auto unwrap(JSContext * ctx, JSValueConst fun_obj)
+    {
+        return js_traits<
+            decltype(std::function{std::declval<Function>()}),
+            int
+        >::unwrap(ctx, fun_obj);
+    }
+
+    template <typename Functor>
+    static JSValue wrap(JSContext * ctx, Functor&& functor)
+    {
+        return js_traits<
+            decltype(std::function{std::declval<Function>()}),
+            int
+        >::wrap(ctx, std::forward<Functor>(functor));
     }
 };
 
