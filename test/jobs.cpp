@@ -7,14 +7,14 @@ int main()
     qjs::Runtime runtime;
     qjs::Context context(runtime);
     
-    context.global().add("nextTick", [&context](std::function<void()> f) {
+    context.global()["nextTick"] = [&context](std::function<void()> f) {
         context.enqueueJob(std::move(f));
-    });
+    };
 
     bool called = false;
-    context.global().add("testFcn", [&called]() {
+    context.global()["testFcn"] = [&called]() {
         called = true;
-    });
+    };
 
     qjs::Value caller = context.eval(R"xxx(
         nextTick(testFcn);

@@ -119,7 +119,7 @@ int main()
         context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
 
 
-        context.global().add("assert", [](bool t) { if(!t) std::exit(2); });
+        context.global()["assert"] = [](bool t) { if(!t) std::exit(2); };
 
 
         auto xxx = context.eval("\"use strict\";"

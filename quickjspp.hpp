@@ -1544,7 +1544,7 @@ public:
             template <typename F>
             class_registrar& fun(const char * name, F&& f)
             {
-                prototype.add(name, std::forward<F>(f));
+                prototype[name] = std::forward<F>(f);
                 return *this;
             }
 
