@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [linux-gcc,linux-clang,linux-gcc8,linux-gcc10,linux-gcc-ubsan,linux-gcc-asan,linux-gcc-32,linux-gcc-x32,linux-clang11,linux-clang12,windows-gcc,macos-clang]
+        compiler: [linux-gcc,linux-clang,linux-gcc8,linux-gcc10,linux-gcc-ubsan,linux-gcc-asan,linux-gcc-32,linux-gcc-x32,linux-clang11,linux-clang12,macos-clang]
         build_type: [Debug]
         include:
           - compiler: linux-gcc
@@ -21,7 +21,7 @@ jobs:
           - compiler: linux-gcc8
             os: ubuntu-18.04
             preconfigure: sudo apt-get update && sudo apt-get install -y gcc-8 g++-8
-            cmake_opts: -DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8
+            cmake_opts: -DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8 -DCMAKE_REQUIRED_LIBRARIES=stdc++fs
 
           - compiler: linux-gcc10
             os: ubuntu-20.04
@@ -58,13 +58,6 @@ jobs:
             cmake_opts: -DCMAKE_C_COMPILER=clang-12 -DCMAKE_CXX_COMPILER=clang++-12
             cflags: -stdlib=libc++
 
-#          - compiler: windows-msvs # not supported
-#            os: windows-latest
-
-          - compiler: windows-gcc
-            os: windows-2019
-            cmake_opts: -G "MSYS Makefiles" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
-
           - compiler: macos-clang
             os: macos-latest
 
@@ -72,6 +65,47 @@ jobs:
     - uses: actions/checkout@v2
       with:
         submodules: recursive
+    - name: preconfigure
+      run: ${{ matrix.preconfigure }}
+    - name: configure
+      run: cmake -S . -B build_dir -Wdev -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_C_FLAGS="${{ matrix.cflags }}" -DCMAKE_CXX_FLAGS="${{ matrix.cflags }}" -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cflags }}" ${{ matrix.cmake_opts }}
+    - name: build
+      run: cmake --build build_dir --verbose
+    - name: test
+      run: ctest --extra-verbose
+      working-directory: build_dir
+      env:
+        # extra options for address sanitizer
+        ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
+
+  build_windows:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [windows-gcc]
+        build_type: [Debug]
+        include:
+          - compiler: windows-gcc
+            os: windows-2019
+            cmake_opts: -G "Ninja" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+
+#          - compiler: windows-msvs # not supported
+#            os: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: recursive
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: git cmake ninja mingw-w64-x86_64-toolchain mingw-w64-x86_64-dlfcn
     - name: preconfigure
       run: ${{ matrix.preconfigure }}
     - name: configure
