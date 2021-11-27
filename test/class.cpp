@@ -44,8 +44,8 @@ public:
     const std::string& fs(TYPES) { i++; return s; }
     void f(TYPES) { i++; }
 
-    double get_d()  { i++; return d; }
-    double set_d(double new_d) { i++; d = new_d; return d; }
+    static double get_d(qjs::shared_ptr<test> p)  { p->i++; return p->d; }
+    static double set_d(qjs::shared_ptr<test> p, double new_d) { p->i++; p->d = new_d; return p->d; }
 
 
     static void fstatic(TYPES) {}
