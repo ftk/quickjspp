@@ -728,6 +728,16 @@ struct ctor_wrapper
     const char * name = nullptr;
 };
 
+namespace detail {
+/// equivalent to JS_GetPropertyStr(ctx, this_value, "prototype");
+inline JSValue GetPropertyPrototype(JSContext * ctx, JSValueConst this_value)
+{
+    // constant atom: doesn't need to be freed and doesn't change with context
+    static const JSAtom JS_ATOM_prototype = JS_NewAtom(ctx, "prototype");
+    return JS_GetProperty(ctx, this_value, JS_ATOM_prototype);
+}
+} // namespace detail
+
 /** Conversion to JSValue for ctor_wrapper. */
 template <class T, typename... Args>
 struct js_traits<ctor_wrapper<T, Args...>>
@@ -748,7 +758,7 @@ struct js_traits<ctor_wrapper<T, Args...>>
 #endif
             }
 
-            auto proto = JS_GetPropertyStr(ctx, this_value, "prototype");
+            auto proto = detail::GetPropertyPrototype(ctx, this_value);
             if(JS_IsException(proto))
                 return proto;
             auto jsobj = JS_NewObjectProtoClass(ctx, proto, js_traits<std::shared_ptr<T>>::QJSClassId);
