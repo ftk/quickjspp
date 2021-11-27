@@ -1372,6 +1372,78 @@ public:
         return (std::string) Value{ctx, JS_JSONStringify(ctx, v, replacer.v, space.v)};
     }
 
+    void swap(Value& r) noexcept { std::swap(this->ctx, r.ctx); std::swap(this->v, r.v); }
+};
+
+template <class T>
+class shared_ptr : public Value
+{
+public:
+    constexpr shared_ptr() noexcept : Value(JS_NULL) {}
+    constexpr shared_ptr(std::nullptr_t) noexcept : shared_ptr() {}
+    constexpr shared_ptr(Value&& v) noexcept : Value(std::move(v)) {}
+    template<class Y>
+    explicit shared_ptr(JSContext * ctx, Y* ptr)
+    {
+        assert(js_traits<std::shared_ptr<T>>::QJSClassId);
+        auto jsobj = JS_NewObjectClass(ctx, js_traits<std::shared_ptr<T>>::QJSClassId);
+        if(JS_IsException(jsobj))
+            throw exception{ctx};
+        JS_SetOpaque(jsobj, static_cast<T*>(ptr));
+        this->v = jsobj;
+        this->ctx = ctx;
+    }
+    shared_ptr(shared_ptr&& r) noexcept : Value(std::move(r)) {}
+    shared_ptr(const shared_ptr& r) noexcept : Value(r) {}
+
+    shared_ptr& operator=(shared_ptr r) { r.swap(*this); return *this; }
+
+    //using Value::operator=;
+
+    void reset() noexcept { shared_ptr().swap(*this); }
+    template<class Y> void reset(Y* ptr) { shared_ptr<T>(ptr).swap(*this); }
+
+    [[nodiscard]] T* get() const noexcept
+    {
+        return JS_GetOpaque(this->v, js_traits<std::shared_ptr<T>>::QJSClassId);
+    }
+    T& operator*() const noexcept { return *get(); }
+    T* operator->() const noexcept { return get(); }
+
+    [[nodiscard]] long use_count() const noexcept
+    {
+        if(ctx == nullptr) return 0;
+        if (JS_VALUE_HAS_REF_COUNT(v))
+            return ((JSRefCountHeader *)JS_VALUE_GET_PTR(this->v))->ref_count;
+        return 1;
+    }
+
+    explicit operator bool() const noexcept { return get() != nullptr; }
+};
+
+template< class T, class... Args >
+inline shared_ptr<T> make_shared(JSContext * ctx, Args&&... args )
+{
+    // not optimized
+    return shared_ptr<T>{ctx, ::new T(std::forward<Args>(args)...)};
+}
+
+template<class T> class enable_shared_from_this;
+
+
+template <class T>
+struct js_traits<shared_ptr<T>>
+{
+    static shared_ptr<T> unwrap(JSContext * ctx, JSValueConst v)
+    {
+        return Value{ctx, JS_DupValue(ctx, v)};
+    }
+
+    static JSValue wrap(JSContext * ctx, shared_ptr<T> v) noexcept
+    {
+        assert(ctx == v.ctx);
+        return v.release();
+    }
 };
 
 /** Thin wrapper over JSRuntime * rt
