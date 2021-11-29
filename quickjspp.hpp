@@ -751,26 +751,39 @@ struct js_traits<ctor_wrapper<T, Args...>>
     {
         return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                         JSValueConst * argv) noexcept -> JSValue {
+            assert(js_traits<std::shared_ptr<T>>::QJSClassId);
+            auto proto = detail::GetPropertyPrototype(ctx, this_value);
+            if(JS_IsException(proto))
+                return proto;
+            auto jsobj = JS_NewObjectProtoClass(ctx, proto, js_traits<std::shared_ptr<T>>::QJSClassId);
+            JS_FreeValue(ctx, proto);
+            if(JS_IsException(jsobj))
+                return jsobj;
             try
             {
-                return std::apply(qjs::make_shared<T, Args...>, std::tuple_cat(std::tuple{ctx}, detail::unwrap_args<Args...>(ctx, argc, argv))).release();
+                // TODO: fix/optimize
+                auto new_T = [](auto&&... args) { return new T(std::move(args)...); };
+                T * ptr = std::apply(new_T, detail::unwrap_args<Args...>(ctx, argc, argv));
+                JS_SetOpaque(jsobj, ptr);
+                return jsobj;
             }
             catch (exception)
             {
+                JS_FreeValue(ctx, jsobj);
                 return JS_EXCEPTION;
             }
             catch (std::exception const & err)
             {
+                JS_FreeValue(ctx, jsobj);
                 JS_ThrowInternalError(ctx, "%s", err.what());
                 return JS_EXCEPTION;
             }
             catch (...)
             {
+                JS_FreeValue(ctx, jsobj);
                 JS_ThrowInternalError(ctx, "Unknown error");
                 return JS_EXCEPTION;
             }
-
-            // return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
         }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
     }
 };
@@ -787,7 +800,7 @@ struct js_traits<std::shared_ptr<T>>
     inline static JSClassID QJSClassId = 0;
 
     /// Signature of the function to obtain the std::shared_ptr from the JSValue.
-    using ptr_cast_fcn_t = std::function<std::shared_ptr<T>(JSContext*, JSValueConst)>;
+    using ptr_cast_fcn_t = std::function<qjs::shared_ptr<T>(JSContext*, JSValueConst)>;
 
     /// Used by registerDerivedClass to register new derived classes with this class' base type.
     inline static std::function<void(JSClassID, ptr_cast_fcn_t)> registerWithBase;
@@ -819,7 +832,7 @@ struct js_traits<std::shared_ptr<T>>
             (JSClassID derived_class_id, derived_ptr_cast_fcn_t derived_ptr_cast_fcn){
                 if (old_registerWithBase) old_registerWithBase(derived_class_id, derived_ptr_cast_fcn);
                 registerDerivedClass<D>(derived_class_id, [derived_cast_fcn = std::move(derived_ptr_cast_fcn)](JSContext * ctx, JSValueConst v) {
-                    return std::shared_ptr<T>(derived_cast_fcn(ctx, v));
+                    return derived_cast_fcn(ctx, v);
                 });
             };
     }
@@ -838,7 +851,7 @@ struct js_traits<std::shared_ptr<T>>
         if(js_traits<std::shared_ptr<T>>::QJSClassId == 0)
             JS_NewClassID(&js_traits<std::shared_ptr<T>>::QJSClassId);
 
-        //js_traits<std::shared_ptr<B>>::template registerDerivedClass<T>(QJSClassId, unwrap);
+        js_traits<std::shared_ptr<B>>::template registerDerivedClass<T>(QJSClassId, unwrap);
     }
 
     template <auto M>
