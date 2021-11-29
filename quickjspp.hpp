@@ -866,6 +866,12 @@ struct js_traits<std::shared_ptr<T>>
         ensureCanCastToBase<detail::class_from_member_pointer_t<decltype(M)>>();
     }
 
+    /** Stores offsets to qjs::Value members of T.
+     * These values should be marked by class_registrar::mark for QuickJS garbage collector
+     * so that the cycle removal algorithm can find the other objects referenced by this object.
+     */
+    static inline std::vector<Value T::*> markOffsets;
+
     /** Register class in QuickJS context.
      *
      * @param ctx context
@@ -882,15 +888,32 @@ struct js_traits<std::shared_ptr<T>>
         auto rt = JS_GetRuntime(ctx);
         if(!JS_IsRegisteredClass(rt, QJSClassId))
         {
+            JSClassGCMark * marker = nullptr;
+            if(!markOffsets.empty())
+            {
+                marker = [](JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+                    auto pptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque(val, QJSClassId));
+                    assert(pptr);
+                    const T * ptr = pptr->get();
+                    assert(ptr);
+                    for(Value T::* member : markOffsets)
+                    {
+                        JS_MarkValue(rt, (*ptr.*member).v, mark_func);
+                    }
+                };
+            }
             JSClassDef def{
                     name,
-                    // destructor
+                    // destructor (finalizer)
                     [](JSRuntime * rt, JSValue obj) noexcept {
                         auto pptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque(obj, QJSClassId));
                         delete pptr;
                     },
+                    // mark
+                    marker,
+                    // call
                     nullptr,
-                    nullptr,
+                    // exotic
                     nullptr
             };
             int e = JS_NewClass(rt, QJSClassId, &def);
@@ -1615,6 +1638,17 @@ public:
                     throw exception{context.ctx};
                 return *this;
             }
+
+            /** All qjs::Value members of T should be marked by mark<> for QuickJS garbage collector
+             * so that the cycle removal algorithm can find the other objects referenced by this object.
+             */
+            template <Value T::* V>
+            class_registrar& mark()
+            {
+                js_traits<std::shared_ptr<T>>::markOffsets.push_back(V);
+                return *this;
+            }
+
 
             ~class_registrar()
             {
