@@ -872,9 +872,7 @@ struct js_traits<std::shared_ptr<T>>
             if(!markOffsets.empty())
             {
                 marker = [](JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
-                    auto pptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque(val, QJSClassId));
-                    assert(pptr);
-                    const T * ptr = pptr->get();
+                    auto ptr = static_cast<const T *>(JS_GetOpaque(val, QJSClassId));
                     assert(ptr);
                     for(Value T::* member : markOffsets)
                     {
@@ -1605,10 +1603,11 @@ public:
             /** All qjs::Value members of T should be marked by mark<> for QuickJS garbage collector
              * so that the cycle removal algorithm can find the other objects referenced by this object.
              */
-            template <Value T::* V>
+            // for shared_ptr<...> TODO
+            template <auto V>
             class_registrar& mark()
             {
-                js_traits<std::shared_ptr<T>>::markOffsets.push_back(V);
+                js_traits<std::shared_ptr<T>>::markOffsets.push_back(reinterpret_cast<Value T::*>(V));
                 return *this;
             }
 

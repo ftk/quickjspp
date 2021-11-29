@@ -81,6 +81,7 @@ void qjs_glue(qjs::Context::Module& m) {
             .fun<&::test::s>("s") // ::std::string
             .property<&test::get_d, &test::set_d>("property_rw")
             .property<&test::get_d>("property_ro")
+            .mark<&::test::spt>()
             ;
 } // qjs_glue
 
