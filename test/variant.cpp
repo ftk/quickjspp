@@ -7,17 +7,18 @@ struct A {};
 
 struct B {};
 
-using var = std::variant<bool, int, double, std::string, std::vector<int>, std::shared_ptr<A>, std::shared_ptr<B>>;
+using var = std::variant<bool, int, double, std::string, std::vector<int>, qjs::shared_ptr<A>, qjs::shared_ptr<B>>;
 
+static JSContext * jsctx;
 
 auto f(var v1, const var& /*v2*/) -> var
 {
     return std::visit([](auto&& v) -> var {
         using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, std::shared_ptr<A>>)
-            return std::make_shared<B>();
-        else if constexpr (std::is_same_v<T, std::shared_ptr<B>>)
-            return std::make_shared<A>();
+        if constexpr (std::is_same_v<T, qjs::shared_ptr<A>>)
+            return qjs::make_shared<B>(jsctx);
+        else if constexpr (std::is_same_v<T, qjs::shared_ptr<B>>)
+            return qjs::make_shared<A>(jsctx);
         else if constexpr (std::is_same_v<T, std::vector<int>>)
         {
             v.push_back(0);
@@ -65,6 +66,7 @@ int main()
 {
     qjs::Runtime runtime;
     qjs::Context context(runtime);
+    jsctx = context.ctx;
 
     try
     {
