@@ -37,6 +37,8 @@ class Value;
 template <typename T> class shared_ptr;
 template<class T, class... Args>
 inline shared_ptr<T> make_shared(JSContext * ctx, Args&&... args);
+template<class T, class... Args>
+inline shared_ptr<T> make_shared_with_object(JSContext * ctx, JSValue&& jsobj, Args&&... args);
 
 
 /** Exception type.
@@ -762,10 +764,10 @@ struct js_traits<ctor_wrapper<T, Args...>>
             try
             {
                 // TODO: fix/optimize
-                auto new_T = [](auto&&... args) { return new T(std::move(args)...); };
-                T * ptr = std::apply(new_T, detail::unwrap_args<Args...>(ctx, argc, argv));
-                JS_SetOpaque(jsobj, ptr);
-                return jsobj;
+                auto sp = std::apply(make_shared_with_object<T, Args...>, std::tuple_cat(
+                        std::tuple<JSContext *, JSValue&&>{ctx, std::move(jsobj)},
+                        detail::unwrap_args<Args...>(ctx, argc, argv)));
+                return sp.release();
             }
             catch (exception)
             {
@@ -1224,14 +1226,41 @@ public:
     explicit operator bool() const noexcept { return get() != nullptr; }
 };
 
+template<class T>
+class enable_shared_from_this
+{
+public://todo
+    shared_ptr<T> shared_this;
+public:
+    shared_ptr<T> shared_from_this()
+    {
+        if(!shared_this.ctx) throw std::bad_weak_ptr{};
+        return shared_this;
+    }
+};
+
 template<class T, class... Args>
-inline shared_ptr<T> make_shared(JSContext * ctx, Args&&... args )
+inline shared_ptr<T> make_shared(JSContext * ctx, Args&&... args)
 {
     // not optimized
-    return shared_ptr<T>{ctx, ::new T(std::forward<Args>(args)...)};
+    auto p = ::new T(std::forward<Args>(args)...);
+    auto sp = shared_ptr<T>{ctx, ::new T(std::forward<Args>(args)...)};
+    if constexpr(std::is_base_of_v<enable_shared_from_this<T>, T>)
+        return p->shared_this = sp;
+    return sp;
 }
 
-template<class T> class enable_shared_from_this;
+template<class T, class... Args>
+inline shared_ptr<T> make_shared_with_object(JSContext * ctx, JSValue&& jsobj, Args&&... args)
+{
+    // not optimized
+    auto p = ::new T(std::forward<Args>(args)...);
+    JS_SetOpaque(jsobj, p);
+    auto sp = shared_ptr<T>{ctx, std::move(jsobj)};
+    if constexpr(std::is_base_of_v<enable_shared_from_this<T>, T>)
+        return p->shared_this = sp;
+    return sp;
+}
 
 
 /** Conversions for qjs::shared_ptr<T>. Empty shared_ptr corresponds to JS_NULL.
@@ -1388,6 +1417,18 @@ struct js_traits<qjs::shared_ptr<T>>
         if(!v) return JS_NULL;
         assert(ctx == v.ctx);
         return v.release();
+    }
+};
+
+template <class T>
+struct js_traits<T *>
+{
+    //static JSValue wrap(JSContext * ctx, T * ptr);
+    static T * unwrap(JSContext * ctx, JSValueConst v)
+    {
+        if(JS_IsNull(v))
+            return nullptr;
+        return js_traits<qjs::shared_ptr<T>>::unwrap(ctx, v).get();
     }
 };
 
@@ -1562,6 +1603,11 @@ public:
                     module(module),
                     context(context)
             {
+                // mark enable_shared_from_this::shared_this if derived from it
+                if constexpr(std::is_base_of_v<enable_shared_from_this<T>,T>)
+                {
+                    mark<&T::shared_this>();
+                }
             }
 
             class_registrar(const class_registrar&) = delete;
