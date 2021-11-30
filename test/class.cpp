@@ -64,7 +64,7 @@ void qjs_glue(qjs::Context::Module& m) {
             ;
 
     m.class_<::test>("test")
-            //.base<::base_test>()
+            .base<::base_test>()
             .constructor<::int32_t, bool, ::int32_t, double, ::qjs::shared_ptr<test>, ::qjs::shared_ptr<test> const &, ::std::string, ::std::string const &>("Test")
             .constructor<::int32_t>("TestSimple")
             .fun<&::test::fi>("fi") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
@@ -102,8 +102,6 @@ int main()
         qjs_glue(context.addModule("test"));
 
         js_std_init_handlers(rt);
-        /* loader for ES6 modules */
-        JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
         js_std_add_helpers(ctx, 0, nullptr);
 
         /* system modules */
@@ -142,12 +140,13 @@ int main()
                                 "q.d = 456.789;"
                                 "q.s = \"STRING\";"
                                 "q.spt = t;"
-                                //"q.base_field = 105.5;"
+                                "t.spt = q;"
+                                "q.base_field = [[5],[1,2,3,4],[6]];"
                                 "assert(q.b === q.fb(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
                                 "assert(q.d === q.fd(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
                                 "assert(q.s === q.fs(t.vb, t.vi, t.vd, t, t, \"test\", t.vs));"
-                                //"assert(105.5 === q.base_method(5.1));"
-                                //"assert(5.1 === q.base_field);"
+                                "assert(5 === q.base_method(7));"
+                                "assert(7 === q.base_field[0][0]);"
                                 "assert(q.spt === q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // same objects
                                 "q.fi(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
         assert((int)xxx == 18);
@@ -164,6 +163,9 @@ int main()
                                "q.i"
                                );
         assert(zzz == 23);
+
+        auto qbase = context.eval("q").as<qjs::shared_ptr<base_test>>();
+        assert(qbase->base_field[0][0] == 7);
     }
     catch(exception)
     {
