@@ -1395,6 +1395,14 @@ public:
         return (std::string) Value{ctx, JS_JSONStringify(ctx, v, replacer.v, space.v)};
     }
 
+    /** same as Context::eval() but with this Value as 'this' */
+    Value evalThis(std::string_view buffer, const char * filename = "<evalThis>", int flags = 0)
+    {
+        assert(buffer.data()[buffer.size()] == '\0' && "eval buffer is not null-terminated"); // JS_Eval requirement
+        assert(ctx);
+        return Value{ctx, JS_EvalThis(ctx, JS_DupValue(ctx, v), buffer.data(), buffer.size(), filename, flags)};
+    }
+
 };
 
 /** Thin wrapper over JSRuntime * rt
