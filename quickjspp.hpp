@@ -1400,7 +1400,7 @@ public:
     {
         assert(buffer.data()[buffer.size()] == '\0' && "eval buffer is not null-terminated"); // JS_Eval requirement
         assert(ctx);
-        return Value{ctx, JS_EvalThis(ctx, JS_DupValue(ctx, v), buffer.data(), buffer.size(), filename, flags)};
+        return Value{ctx, JS_EvalThis(ctx, v, buffer.data(), buffer.size(), filename, flags)};
     }
 
 };
