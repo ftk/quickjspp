@@ -1850,21 +1850,35 @@ struct js_traits<std::function<R(Args...)>, int>
      * Uses detail::function for type-erasure.
      */
     template <typename Functor>
-    static JSValue wrap(JSContext * ctx, Functor&& functor)
+    static JSValue wrap(JSContext * ctx, Functor&& functor) noexcept
     {
         using detail::function;
         assert(js_traits<function>::QJSClassId);
         auto obj = JS_NewObjectClass(ctx, js_traits<function>::QJSClassId);
         if(JS_IsException(obj))
+            return obj;
+        try
+        {
+            auto fptr = function::create(JS_GetRuntime(ctx), std::forward<Functor>(functor));
+            fptr->invoker = [](function * self, JSContext * ctx, JSValueConst this_value, int argc,
+                               JSValueConst * argv) {
+                assert(self);
+                auto f = reinterpret_cast<std::decay_t<Functor> *>(&self->functor);
+                return detail::wrap_call<R, Args...>(ctx, *f, argc, argv);
+            };
+            JS_SetOpaque(obj, fptr);
+            return obj;
+        }
+        catch(const std::exception& e)
+        {
+            JS_ThrowInternalError(ctx, "%s", e.what());
             return JS_EXCEPTION;
-        auto fptr = function::create(JS_GetRuntime(ctx), std::forward<Functor>(functor));
-        fptr->invoker = [](function * self, JSContext * ctx, JSValueConst this_value, int argc, JSValueConst * argv) {
-            assert(self);
-            auto f = reinterpret_cast<std::decay_t<Functor> *>(&self->functor);
-            return detail::wrap_call<R, Args...>(ctx, *f, argc, argv);
-        };
-        JS_SetOpaque(obj, fptr);
-        return obj;
+        }
+        catch(...)
+        {
+            JS_ThrowInternalError(ctx, "Unknown errror");
+            return JS_EXCEPTION;
+        }
     }
 };
 
