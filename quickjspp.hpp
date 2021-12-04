@@ -1395,8 +1395,12 @@ struct js_traits<qjs::shared_ptr<T>>
                     name,
                     // destructor (finalizer)
                     [](JSRuntime * rt, JSValue obj) noexcept {
-                        auto pptr = static_cast<T *>(JS_GetOpaque(obj, QJSClassId));
-                        delete pptr;
+                        auto ptr = static_cast<T *>(JS_GetOpaque(obj, QJSClassId));
+                        if constexpr(std::is_base_of_v<qjs::enable_shared_from_this<T>, T>)
+                        {
+                            if(ptr) ptr->shared_this.release();
+                        }
+                        delete ptr;
                     },
                     // mark
                     marker,
