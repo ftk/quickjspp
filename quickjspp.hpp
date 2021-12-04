@@ -771,18 +771,15 @@ struct js_traits<ctor_wrapper<T, Args...>>
             }
             catch (exception)
             {
-                JS_FreeValue(ctx, jsobj);
                 return JS_EXCEPTION;
             }
             catch (std::exception const & err)
             {
-                JS_FreeValue(ctx, jsobj);
                 JS_ThrowInternalError(ctx, "%s", err.what());
                 return JS_EXCEPTION;
             }
             catch (...)
             {
-                JS_FreeValue(ctx, jsobj);
                 JS_ThrowInternalError(ctx, "Unknown error");
                 return JS_EXCEPTION;
             }
@@ -1247,27 +1244,45 @@ public:
     }
 };
 
-template<class T, class... Args>
-inline shared_ptr<T> make_shared(JSContext * ctx, Args&&... args)
+template <class T, class... Args>
+inline shared_ptr<T> make_shared(JSContext * ctx, Args&& ... args)
 {
     // not optimized
-    auto p = ::new T(std::forward<Args>(args)...);
-    auto sp = shared_ptr<T>{ctx, ::new T(std::forward<Args>(args)...)};
-    if constexpr(std::is_base_of_v<enable_shared_from_this<T>, T>)
-        return p->shared_this = sp;
-    return sp;
+    T * p = nullptr;
+    try
+    {
+        p = ::new T(std::forward<Args>(args)...);
+        auto sp = shared_ptr<T>{ctx, p};
+        if constexpr(std::is_base_of_v<enable_shared_from_this<T>, T>)
+            return p->shared_this = sp;
+        return sp;
+    } catch(...)
+    {
+        delete p;
+        throw;
+    }
 }
 
-template<class T, class... Args>
-inline shared_ptr<T> make_shared_with_object(JSContext * ctx, JSValue&& jsobj, Args&&... args)
+template <class T, class... Args>
+inline shared_ptr<T> make_shared_with_object(JSContext * ctx, JSValue&& jsobj, Args&& ... args)
 {
     // not optimized
-    auto p = ::new T(std::forward<Args>(args)...);
-    JS_SetOpaque(jsobj, p);
-    auto sp = shared_ptr<T>{ctx, std::move(jsobj)};
-    if constexpr(std::is_base_of_v<enable_shared_from_this<T>, T>)
-        return p->shared_this = sp;
-    return sp;
+    T * p = nullptr;
+    try
+    {
+        p = ::new T(std::forward<Args>(args)...);
+        JS_SetOpaque(jsobj, p);
+        auto sp = shared_ptr<T>{ctx, std::move(jsobj)};
+        if constexpr(std::is_base_of_v<enable_shared_from_this<T>, T>)
+            return p->shared_this = sp;
+        return sp;
+    } catch(...)
+    {
+        JS_SetOpaque(jsobj, nullptr);
+        JS_FreeValue(ctx, jsobj);
+        delete p;
+        throw;
+    }
 }
 
 
