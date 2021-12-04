@@ -1823,19 +1823,16 @@ struct js_traits<std::function<R(Args...)>, int>
         const int argc = sizeof...(Args);
         if constexpr(argc == 0)
         {
-            return [ctx, jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}]() -> R {
+            return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}]() -> R {
                 JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, 0, nullptr);
                 if(JS_IsException(result))
-                {
-                    JS_FreeValue(jsfun_obj.ctx, result);
-                    throw exception{ctx};
-                }
+                    throw exception{jsfun_obj.ctx};
                 return detail::unwrap_free<R>(jsfun_obj.ctx, result);
             };
         }
         else
         {
-            return [ctx, jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
+            return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
                 const int argc = sizeof...(Args);
                 JSValue argv[argc];
                 detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
@@ -1843,10 +1840,7 @@ struct js_traits<std::function<R(Args...)>, int>
                                          const_cast<JSValueConst *>(argv));
                 for(int i = 0; i < argc; i++) JS_FreeValue(jsfun_obj.ctx, argv[i]);
                 if(JS_IsException(result))
-                {
-                    JS_FreeValue(jsfun_obj.ctx, result);
-                    throw exception{ctx};
-                }
+                    throw exception{jsfun_obj.ctx};
                 return detail::unwrap_free<R>(jsfun_obj.ctx, result);
             };
         }
