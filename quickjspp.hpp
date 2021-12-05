@@ -65,13 +65,13 @@ struct js_traits
      * @param v This value is passed as JSValueConst so it should be freed by the caller.
      * @throws exception in case of conversion error
      */
-    static R unwrap(JSContext * ctx, JSValueConst v);
+    static R unwrap(JSContext * ctx, JSValueConst v) = delete;
 
     /** Create JSValue from an object of type R and JSContext.
      * This function is intentionally not implemented. User should implement this function for their own type.
      * @return Returns JSValue which should be freed by the caller or JS_EXCEPTION in case of error.
      */
-    static JSValue wrap(JSContext * ctx, R value);
+    static JSValue wrap(JSContext * ctx, R value) = delete;
 };
 
 /** Conversion traits for JSValue (identity).
@@ -875,9 +875,9 @@ struct js_traits<detail::function>
 template <typename Key>
 struct js_property_traits
 {
-    static void set_property(JSContext * ctx, JSValue this_obj, Key key, JSValue value);
+    static void set_property(JSContext * ctx, JSValue this_obj, Key key, JSValue value) = delete;
 
-    static JSValue get_property(JSContext * ctx, JSValue this_obj, Key key);
+    static JSValue get_property(JSContext * ctx, JSValue this_obj, Key key) = delete;
 };
 
 template <>
