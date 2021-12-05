@@ -1459,6 +1459,31 @@ struct js_traits<T *>
     }
 };
 
+template <class T>
+struct js_traits<T, std::enable_if_t<std::is_base_of_v<enable_shared_from_this<T>, T>>>
+{
+    static JSValue wrap(JSContext * ctx, T& obj) noexcept
+    {
+        try
+        {
+            return js_traits<qjs::shared_ptr<T>>::wrap(ctx, obj.shared_from_this());
+        } catch(const std::exception& e)
+        {
+            // probably wasn't made with qjs::make_shared
+            JS_ThrowInternalError(ctx, e.what());
+            return JS_EXCEPTION;
+        }
+    }
+
+    static T& unwrap(JSContext * ctx, JSValueConst v)
+    {
+        T * p = js_traits<qjs::shared_ptr<T>>::unwrap(ctx, v).get();
+        assert(p);
+        return *p;
+    }
+};
+
+
 /** Thin wrapper over JSRuntime * rt
  * Calls JS_FreeRuntime on destruction. noncopyable.
  */
