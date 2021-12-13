@@ -1470,7 +1470,7 @@ struct js_traits<T, std::enable_if_t<std::is_base_of_v<enable_shared_from_this<T
         } catch(const std::exception& e)
         {
             // probably wasn't made with qjs::make_shared
-            JS_ThrowInternalError(ctx, e.what());
+            JS_ThrowInternalError(ctx, "%s", e.what());
             return JS_EXCEPTION;
         }
     }
