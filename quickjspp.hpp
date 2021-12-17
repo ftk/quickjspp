@@ -1242,21 +1242,21 @@ public:
             throw exception{ctx};
     }
 
-    Value(JSValue&& v) : v(std::move(v)), ctx(nullptr) {}
+    Value(JSValue&& v) noexcept : v(std::move(v)), ctx(nullptr) {}
 
-    Value(const Value& rhs)
+    Value(const Value& rhs) noexcept
     {
         ctx = rhs.ctx;
         v = JS_DupValue(ctx, rhs.v);
     }
 
-    Value(Value&& rhs)
+    Value(Value&& rhs) noexcept
     {
         std::swap(ctx, rhs.ctx);
         v = rhs.v;
     }
 
-    Value& operator =(Value rhs)
+    Value& operator =(Value rhs) noexcept
     {
         std::swap(ctx, rhs.ctx);
         std::swap(v, rhs.v);
@@ -1298,14 +1298,14 @@ public:
     template <typename T>
     explicit operator T() const { return as<T>(); }
 
-    JSValue release() // dont call freevalue
+    JSValue release() noexcept// dont call freevalue
     {
         ctx = nullptr;
         return v;
     }
 
     /** Implicit conversion to JSValue (rvalue only). Example: JSValue v = std::move(value); */
-    operator JSValue()&& { return release(); }
+    operator JSValue()&& noexcept { return release(); }
 
 
     /** Access JS properties. Returns proxy type which is implicitly convertible to qjs::Value */
