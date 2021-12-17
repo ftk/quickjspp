@@ -896,7 +896,7 @@ struct js_traits<std::shared_ptr<T>>
                     assert(pptr);
                     const T * ptr = pptr->get();
                     assert(ptr);
-                    for(Value T::* member : markOffsets)
+                    for(auto&& member : markOffsets)
                     {
                         JS_MarkValue(rt, (*ptr.*member).v, mark_func);
                     }
