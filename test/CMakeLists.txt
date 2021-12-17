@@ -1,7 +1,7 @@
 macro(make_test name)
 add_executable(${name} ${name}.cpp)
 target_link_libraries(${name} quickjspp quickjs-dumpleaks)
-add_test(${name} ${name})
+add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 # try to compile with -DCONFIG_CHECK_JSVALUE
 add_library(${name}-checkjsv OBJECT ${name}.cpp)
 target_compile_definitions(${name}-checkjsv PRIVATE CONFIG_CHECK_JSVALUE=1)
