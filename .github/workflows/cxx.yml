@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [linux-gcc,linux-clang,linux-gcc8,linux-gcc10,linux-gcc-ubsan,linux-gcc-asan,linux-gcc-32,linux-gcc-x32,linux-clang11,linux-clang12,macos-clang]
+        compiler: [ linux-gcc,linux-clang,linux-gcc8,linux-gcc10,linux-gcc-ubsan,linux-gcc-asan,linux-gcc-32,linux-gcc-x32,linux-clang11,linux-clang12,macos-clang,windows-msvc,windows-msvc-32,windows-clang,windows-clang-32 ]
         build_type: [Debug]
         include:
           - compiler: linux-gcc
@@ -61,6 +61,20 @@ jobs:
           - compiler: macos-clang
             os: macos-latest
 
+          - compiler: windows-msvc
+            os: windows-latest
+
+          - compiler: windows-msvc-32
+            os: windows-latest
+            cmake_opts: -A Win32
+
+          - compiler: windows-clang
+            os: windows-latest
+            cmake_opts: -T ClangCL
+
+          - compiler: windows-clang-32
+            os: windows-latest
+            cmake_opts: -T ClangCL -A Win32
     steps:
     - uses: actions/checkout@v2
       with:
@@ -70,15 +84,15 @@ jobs:
     - name: configure
       run: cmake -S . -B build_dir -Wdev -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_C_FLAGS="${{ matrix.cflags }}" -DCMAKE_CXX_FLAGS="${{ matrix.cflags }}" -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.cflags }}" ${{ matrix.cmake_opts }}
     - name: build
-      run: cmake --build build_dir --verbose
+      run: cmake --build build_dir --verbose --config ${{ matrix.build_type }}
     - name: test
-      run: ctest --extra-verbose
+      run: ctest --extra-verbose --build-config ${{ matrix.build_type }}
       working-directory: build_dir
       env:
         # extra options for address sanitizer
         ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
 
-  build_windows:
+  build_mingw:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -89,9 +103,6 @@ jobs:
           - compiler: windows-gcc
             os: windows-2019
             cmake_opts: -G "Ninja" -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
-
-#          - compiler: windows-msvs # not supported
-#            os: windows-latest
 
     defaults:
       run:
