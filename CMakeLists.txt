@@ -18,6 +18,9 @@ if(CMAKE_COMPILER_IS_GNUCC)
         target_link_libraries(quickjspp INTERFACE stdc++fs) # required for gcc-8
     endif()
 endif()
+if(MSVC)
+    add_compile_options(/EHsc)
+endif()
 
 add_executable(qjs qjs.cpp)
 target_link_libraries(qjs quickjspp)
