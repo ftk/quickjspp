@@ -91,6 +91,12 @@ jobs:
       env:
         # extra options for address sanitizer
         ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
+    - name: install
+      run: cmake --install build_dir --prefix install_prefix --config ${{ matrix.build_type }}
+    - uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.compiler }}
+        path: install_prefix
 
   build_mingw:
     runs-on: ${{ matrix.os }}
@@ -129,3 +135,9 @@ jobs:
       env:
         # extra options for address sanitizer
         ASAN_OPTIONS: strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1
+    - name: install
+      run: cmake --install build_dir --prefix install_prefix
+    - uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.compiler }}-${{ matrix.build_type }}
+        path: install_prefix
