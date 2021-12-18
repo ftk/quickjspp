@@ -98,11 +98,11 @@ int main()
 
     try
     {
+        js_std_init_handlers(rt);
+
         qjs_glue(context.addModule("test"));
 
-        js_std_init_handlers(rt);
         /* loader for ES6 modules */
-        JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
         js_std_add_helpers(ctx, 0, nullptr);
 
         /* system modules */

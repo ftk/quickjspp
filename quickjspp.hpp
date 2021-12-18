@@ -919,6 +919,7 @@ struct js_traits<std::shared_ptr<T>>
             int e = JS_NewClass(rt, QJSClassId, &def);
             if(e < 0)
             {
+                JS_FreeValue(ctx, proto);
                 JS_ThrowInternalError(ctx, "Can't register class %s", name);
                 throw exception{ctx};
             }
@@ -1657,10 +1658,14 @@ public:
                 return *this;
             }
 
-
-            ~class_registrar()
+            ~class_registrar() noexcept(false)
             {
-                context.registerClass<T>(name, std::move(prototype));
+                // register_class can throw, so check if an exception has already occurred
+                JSValue v = JS_GetException(context.ctx);
+                if(JS_IsNull(v))
+                    context.registerClass<T>(name, std::move(prototype));
+                else
+                    JS_Throw(context.ctx, v);
             }
         };
 
