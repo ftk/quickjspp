@@ -1390,7 +1390,7 @@ struct js_traits<qjs::shared_ptr<T>>
                 marker = [](JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
                     auto ptr = static_cast<const T *>(JS_GetOpaque(val, QJSClassId));
                     assert(ptr);
-                    for(Value T::* member : markOffsets)
+                    for(auto&& member : markOffsets)
                     {
                         JS_MarkValue(rt, (*ptr.*member).v, mark_func);
                     }
