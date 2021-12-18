@@ -99,10 +99,10 @@ int main()
 
     try
     {
-        qjs_glue(context.addModule("test"));
-
         js_std_init_handlers(rt);
         js_std_add_helpers(ctx, 0, nullptr);
+
+        qjs_glue(context.addModule("test"));
 
         /* system modules */
         js_init_module_std(ctx, "std");

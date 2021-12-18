@@ -1005,21 +1005,21 @@ public:
             throw exception{ctx};
     }
 
-    Value(JSValue&& v) : v(std::move(v)), ctx(nullptr) {}
+    Value(JSValue&& v) noexcept : v(std::move(v)), ctx(nullptr) {}
 
-    Value(const Value& rhs)
+    Value(const Value& rhs) noexcept
     {
         ctx = rhs.ctx;
         v = JS_DupValue(ctx, rhs.v);
     }
 
-    Value(Value&& rhs)
+    Value(Value&& rhs) noexcept
     {
         std::swap(ctx, rhs.ctx);
         v = rhs.v;
     }
 
-    Value& operator =(Value rhs)
+    Value& operator =(Value rhs) noexcept
     {
         std::swap(ctx, rhs.ctx);
         std::swap(v, rhs.v);
@@ -1028,7 +1028,12 @@ public:
 
     bool operator ==(JSValueConst other) const
     {
-        return JS_VALUE_GET_TAG(v) == JS_VALUE_GET_TAG(other) && JS_VALUE_GET_PTR(v) == JS_VALUE_GET_PTR(other);
+        auto tag = JS_VALUE_GET_TAG(v);
+        if(tag != JS_VALUE_GET_TAG(other))
+            return false;
+        if(tag >= JS_TAG_INT && tag < JS_TAG_FLOAT64)
+            return JS_VALUE_GET_INT(v) == JS_VALUE_GET_INT(other);
+        return JS_VALUE_GET_PTR(v) == JS_VALUE_GET_PTR(other);
     }
 
     bool operator !=(JSValueConst other) const { return !((*this) == other); }
@@ -1061,14 +1066,14 @@ public:
     template <typename T>
     explicit operator T() const { return as<T>(); }
 
-    JSValue release() // dont call freevalue
+    JSValue release() noexcept// dont call freevalue
     {
         ctx = nullptr;
         return v;
     }
 
     /** Implicit conversion to JSValue (rvalue only). Example: JSValue v = std::move(value); */
-    operator JSValue()&& { return release(); }
+    operator JSValue()&& noexcept { return release(); }
 
 
     /** Access JS properties. Returns proxy type which is implicitly convertible to qjs::Value */
@@ -1412,6 +1417,7 @@ struct js_traits<qjs::shared_ptr<T>>
             int e = JS_NewClass(rt, QJSClassId, &def);
             if(e < 0)
             {
+                JS_FreeValue(ctx, proto);
                 JS_ThrowInternalError(ctx, "Can't register class %s", name);
                 throw exception{ctx};
             }
@@ -1742,10 +1748,14 @@ public:
                 return *this;
             }
 
-
-            ~class_registrar()
+            ~class_registrar() noexcept(false)
             {
-                context.registerClass<T>(name, std::move(prototype));
+                // register_class can throw, so check if an exception has already occurred
+                JSValue v = JS_GetException(context.ctx);
+                if(JS_IsNull(v))
+                    context.registerClass<T>(name, std::move(prototype));
+                else
+                    JS_Throw(context.ctx, v);
             }
         };
 

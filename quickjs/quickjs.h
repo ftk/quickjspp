@@ -215,12 +215,18 @@ typedef struct JSValue {
 #define JS_VALUE_GET_FLOAT64(v) ((v).u.float64)
 #define JS_VALUE_GET_PTR(v) ((v).u.ptr)
 
+#ifdef __cplusplus
+#define JS_MKVAL(tag, val) JSValue{ JSValueUnion{ .int32 = val }, tag }
+#define JS_MKPTR(tag, p) JSValue{ JSValueUnion{ .ptr = p }, tag }
+#define JS_NAN JSValue{ .u.float64 = JS_FLOAT64_NAN, JS_TAG_FLOAT64 }
+#else
 #define JS_MKVAL(tag, val) (JSValue){ (JSValueUnion){ .int32 = val }, tag }
 #define JS_MKPTR(tag, p) (JSValue){ (JSValueUnion){ .ptr = p }, tag }
+#define JS_NAN (JSValue){ .u.float64 = JS_FLOAT64_NAN, JS_TAG_FLOAT64 }
+#endif
 
 #define JS_TAG_IS_FLOAT64(tag) ((unsigned)(tag) == JS_TAG_FLOAT64)
 
-#define JS_NAN (JSValue){ .u.float64 = JS_FLOAT64_NAN, JS_TAG_FLOAT64 }
 
 static inline JSValue __JS_NewFloat64(JSContext *ctx, double d)
 {
