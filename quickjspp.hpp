@@ -661,7 +661,7 @@ void wrap_args(JSContext * ctx, JSValue * argv, Args&& ... args)
 
 // Helper trait to obtain `T` in `T::*` expressions
 template<typename T> struct class_from_member_pointer { using type = void; };
-template<typename T, typename U> struct class_from_member_pointer<T U::*> { using type = U; };
+template<typename T, typename U> struct class_from_member_pointer<T U::*> { using type = U; using member_type = T; };
 template<typename T> using class_from_member_pointer_t = typename class_from_member_pointer<T>::type;
 
 } // namespace detail
@@ -1740,10 +1740,11 @@ public:
             /** All qjs::Value members of T should be marked by mark<> for QuickJS garbage collector
              * so that the cycle removal algorithm can find the other objects referenced by this object.
              */
-            // for shared_ptr<...> TODO
             template <auto V>
             class_registrar& mark()
             {
+                static_assert(std::is_base_of_v<Value, typename detail::class_from_member_pointer<decltype(V)>::member_type>,
+                        "marking a member pointer that is not derived from qjs::Value");
                 js_traits<qjs::shared_ptr<T>>::markOffsets.push_back(reinterpret_cast<Value T::*>(V));
                 return *this;
             }
