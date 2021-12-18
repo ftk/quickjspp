@@ -1266,7 +1266,12 @@ public:
 
     bool operator ==(JSValueConst other) const
     {
-        return JS_VALUE_GET_TAG(v) == JS_VALUE_GET_TAG(other) && JS_VALUE_GET_PTR(v) == JS_VALUE_GET_PTR(other);
+        auto tag = JS_VALUE_GET_TAG(v);
+        if(tag != JS_VALUE_GET_TAG(other))
+            return false;
+        if(tag >= JS_TAG_INT && tag < JS_TAG_FLOAT64)
+            return JS_VALUE_GET_INT(v) == JS_VALUE_GET_INT(other);
+        return JS_VALUE_GET_PTR(v) == JS_VALUE_GET_PTR(other);
     }
 
     bool operator !=(JSValueConst other) const { return !((*this) == other); }
