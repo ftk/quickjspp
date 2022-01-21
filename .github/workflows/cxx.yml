@@ -69,11 +69,11 @@ jobs:
             cmake_opts: -A Win32
 
           - compiler: windows-clang
-            os: windows-latest
+            os: windows-2022
             cmake_opts: -T ClangCL
 
           - compiler: windows-clang-32
-            os: windows-latest
+            os: windows-2022
             cmake_opts: -T ClangCL -A Win32
     steps:
     - uses: actions/checkout@v2
