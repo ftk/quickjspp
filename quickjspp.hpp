@@ -1276,11 +1276,10 @@ public:
 
     bool operator !=(JSValueConst other) const { return !((*this) == other); }
 
-
     /** Returns true if 2 values are the same (equality for arithmetic types or point to the same object) */
     bool operator ==(const Value& rhs) const
     {
-        return ctx == rhs.ctx && (*this == rhs.v);
+        return (*this == rhs.v);
     }
 
     bool operator !=(const Value& rhs) const { return !((*this) == rhs); }
@@ -1816,7 +1815,7 @@ struct js_traits<Value>
 
     static JSValue wrap(JSContext * ctx, Value v) noexcept
     {
-        assert(ctx == v.ctx);
+        assert(JS_GetRuntime(ctx) == JS_GetRuntime(v.ctx));
         return v.release();
     }
 };
