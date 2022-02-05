@@ -25,15 +25,23 @@ int main()
     qjs::Runtime runtime;
     qjs::Context context1(runtime);
     qjs::Context context2(runtime);
+    qjs::Value val = JS_UNDEFINED, mc = JS_UNDEFINED;
     try
     {
         // export classes as a module
         glue(context1.addModule("MyModule"));
         // evaluate js code
-        context1.eval("import * as my from 'MyModule'; " "\n"
-                      "(new my.MyClass()).print_context(undefined);" "\n"
-                     , "<eval>", JS_EVAL_TYPE_MODULE
-        );
+        context1.eval(R"xxx(
+            import * as my from 'MyModule';
+            globalThis.mc = new my.MyClass();
+            mc.print_context(undefined);
+        )xxx", "<eval>", JS_EVAL_TYPE_MODULE);
+
+        context1.global()["val"] = context1.fromJSON("{\"a\":\"1\",\"b\":{\"2\":2}}");
+        val = context1.eval("globalThis.val");
+        assert(val["a"].as<int>() == 1);
+
+        mc = context1.eval("mc");
     }
     catch(qjs::exception e)
     {
@@ -50,6 +58,13 @@ int main()
                       "(new my.MyClass()).print_context(undefined);" "\n"
                       ,"<eval>", JS_EVAL_TYPE_MODULE
         );
+        context2.global()["val"] = val;
+        assert(val == context2.eval("globalThis.val"));
+
+        context2.global()["mc"] = mc;
+        // will print the first context even though we call it from second
+        // see js_call_c_function
+        context2.eval("mc.print_context(undefined)");
     }
     catch(qjs::exception e)
     {

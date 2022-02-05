@@ -20,8 +20,6 @@ int main()
         assert(val1 == val2);
 
         val1 = std::move(val2);
-        assert(val1 != val2);
-
         assert(val1.as<std::string>() == "123");
 
         assert((double) val1 == 123.0);
