@@ -55,6 +55,13 @@ typedef sig_t sighandler_t;
 #endif
 #endif /* __APPLE__ */
 
+#if defined(__FreeBSD__)
+typedef sig_t sighandler_t;
+__BEGIN_DECLS
+extern char **environ;
+__END_DECLS
+#endif  /* __FreeBSD__ */
+
 #endif
 
 #if !defined(_WIN32)
