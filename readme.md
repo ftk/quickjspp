@@ -1,8 +1,28 @@
+# QuickJSPP
+
+This is a modification of [FTK/quickjspp](https://github.com/ftk/quickjspp)
+
+* Uses FTK's `sharedptr` branch (aka quickjspp v2)
+* The bundled `quickjs` library code is the latest from c-smile/quickjspp with Windoes MSVC build support
+* Added support for compiling with `meson` and `ninja` 
+
+## Compiling
+
+* Clone the repo
+* `meson build`
+* `cd build`
+* Configure your build. Suggest `meson configure -Ddefault_library=static -Db_ndebug=if-release -Dbuildtype=release -Ddebug=false -Dstrip=true`
+* `ninja -C .`
+
+Original readme below.
+
+---
+
 QuickJSPP is QuickJS wrapper for C++. It allows you to easily embed Javascript engine into your program.
 
 QuickJS is a small and embeddable Javascript engine. It supports the ES2020 specification including modules, asynchronous generators and proxies. More info: <https://bellard.org/quickjs/>
 
-# Example
+## Example
 ```cpp
 #include "quickjspp.hpp"
 #include <iostream>
@@ -66,11 +86,12 @@ int main()
 }
 ```
 
-# Installation
+## Installation
 QuickJSPP is header-only - put quickjspp.hpp into your include search path.
 Compiler that supports C++17 or later is required.
 The program needs to be linked against QuickJS.
-Sample CMake project files are provided.
+Sample CMake project files, and a meson build file,
+ are provided.
 
-# License
+## License
 QuickJSPP is licensed under [CC0](https://creativecommons.org/publicdomain/zero/1.0/). QuickJS is licensed under [MIT](https://opensource.org/licenses/MIT).
