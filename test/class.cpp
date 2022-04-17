@@ -3,7 +3,7 @@
 #include <iostream>
 
 
-#define TYPES bool, int32_t, double, std::shared_ptr<test>, const std::shared_ptr<test>&, std::string, const std::string&
+#define TYPES bool, int32_t, double, qjs::shared_ptr<test>, const qjs::shared_ptr<test>&, std::string, const std::string&
 
 class base_test
 {
@@ -23,7 +23,7 @@ public:
     bool b;
     mutable int32_t i;
     double d = 7.;
-    std::shared_ptr<test> spt;
+    qjs::shared_ptr<test> spt;
     std::string s;
 
     test(int32_t i, TYPES) : i(i)
@@ -40,7 +40,7 @@ public:
     int32_t fi(TYPES) const { i++; return i; }
     bool fb(TYPES) { i++; return b; }
     double fd(TYPES) const { i++; return d; }
-    const std::shared_ptr<test>& fspt(TYPES) { i++; return spt; }
+    const qjs::shared_ptr<test>& fspt(TYPES) { i++; return spt; }
     const std::string& fs(TYPES) { i++; return s; }
     void f(TYPES) { i++; }
 
@@ -64,8 +64,8 @@ void qjs_glue(qjs::Context::Module& m) {
             ;
 
     m.class_<::test>("test")
-            //.base<::base_test>()
-            .constructor<::int32_t, bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &>("Test")
+            .base<::base_test>()
+            .constructor<::int32_t, bool, ::int32_t, double, ::qjs::shared_ptr<test>, ::qjs::shared_ptr<test> const &, ::std::string, ::std::string const &>("Test")
             .constructor<::int32_t>("TestSimple")
             .fun<&::test::fi>("fi") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
             .fun<&::test::fb>("fb") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
@@ -81,6 +81,7 @@ void qjs_glue(qjs::Context::Module& m) {
             .fun<&::test::s>("s") // ::std::string
             .property<&test::get_d, &test::set_d>("property_rw")
             .property<&test::get_d>("property_ro")
+            .mark<&::test::spt>()
             ;
 } // qjs_glue
 
@@ -98,12 +99,10 @@ int main()
 
     try
     {
-        qjs_glue(context.addModule("test"));
-
         js_std_init_handlers(rt);
-        /* loader for ES6 modules */
-        JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
         js_std_add_helpers(ctx, 0, nullptr);
+
+        qjs_glue(context.addModule("test"));
 
         /* system modules */
         js_init_module_std(ctx, "std");
@@ -115,11 +114,17 @@ int main()
                            "import * as test from 'test';\n"
                            "globalThis.std = std;\n"
                            "globalThis.test = test;\n"
-                           "globalThis.os = os;\n";
+                           "globalThis.os = os;\n"
+                           "globalThis.assert = function(b, str)\n"
+                           "{\n"
+                           "    if (b) {\n"
+                           "        std.printf('OK' + str + '\\n'); return;\n"
+                           "    } else {\n"
+                           "        throw Error(\"assertion failed: \" + str);\n"
+                           "    }\n"
+                           "}";
         context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
 
-
-        context.global()["assert"] = [](bool t) { if(!t) std::exit(2); };
 
 
         auto xxx = context.eval("\"use strict\";"
@@ -135,21 +140,22 @@ int main()
                                 "q.d = 456.789;"
                                 "q.s = \"STRING\";"
                                 "q.spt = t;"
-                                //"q.base_field = 105.5;"
+                                "t.spt = q;"
+                                "q.base_field = [[5],[1,2,3,4],[6]];"
                                 "assert(q.b === q.fb(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
                                 "assert(q.d === q.fd(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));"
                                 "assert(q.s === q.fs(t.vb, t.vi, t.vd, t, t, \"test\", t.vs));"
-                                //"assert(105.5 === q.base_method(5.1));"
-                                //"assert(5.1 === q.base_field);"
-                                "assert(q.spt !== q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // different objects
+                                "assert(5 === q.base_method(7));"
+                                "assert(7 === q.base_field[0][0]);"
+                                "assert(q.spt === q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // same objects
                                 "q.fi(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
         assert((int)xxx == 18);
         auto yyy = context.eval("q.fi.bind(t)(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
         assert((int)yyy == 13);
 
         auto f = context.eval("q.fi.bind(q)").as<std::function<int32_t(TYPES)>>();
-        int zzz = f(false, 1, 0., context.eval("q").as<std::shared_ptr<test>>(),
-                    context.eval("t").as<std::shared_ptr<test>>(), "test string", std::string{"test"});
+        int zzz = f(false, 1, 0., context.eval("q").as<qjs::shared_ptr<test>>(),
+                    context.eval("t").as<qjs::shared_ptr<test>>(), "test string", std::string{"test"});
         assert(zzz == 19);
 
         zzz = (int)context.eval("q.property_rw = q.property_ro - q.property_rw + 1;"
@@ -157,6 +163,9 @@ int main()
                                "q.i"
                                );
         assert(zzz == 23);
+
+        auto qbase = context.eval("q").as<qjs::shared_ptr<base_test>>();
+        assert(qbase->base_field[0][0] == 7);
     }
     catch(exception)
     {

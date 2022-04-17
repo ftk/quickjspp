@@ -34,6 +34,13 @@ namespace qjs {
 class Context;
 class Value;
 
+template <typename T> class shared_ptr;
+template<class T, class... Args>
+inline shared_ptr<T> make_shared(JSContext * ctx, Args&&... args);
+template<class T, class... Args>
+inline shared_ptr<T> make_shared_with_object(JSContext * ctx, JSValue&& jsobj, Args&&... args);
+
+
 /** Exception type.
  * Indicates that exception has occured in JS context.
  */
@@ -58,13 +65,13 @@ struct js_traits
      * @param v This value is passed as JSValueConst so it should be freed by the caller.
      * @throws exception in case of conversion error
      */
-    static R unwrap(JSContext * ctx, JSValueConst v);
+    static R unwrap(JSContext * ctx, JSValueConst v) = delete;
 
     /** Create JSValue from an object of type R and JSContext.
      * This function is intentionally not implemented. User should implement this function for their own type.
      * @return Returns JSValue which should be freed by the caller or JS_EXCEPTION in case of error.
      */
-    static JSValue wrap(JSContext * ctx, R value);
+    static JSValue wrap(JSContext * ctx, R value) = delete;
 };
 
 /** Conversion traits for JSValue (identity).
@@ -265,7 +272,7 @@ struct js_traits<std::variant<Ts...>>
 
     /* Useful type traits */
     template <typename T> struct is_shared_ptr : std::false_type {};
-    template <typename T> struct is_shared_ptr<std::shared_ptr<T>> : std::true_type {};
+    template <typename T> struct is_shared_ptr<qjs::shared_ptr<T>> : std::true_type {};
     template <typename T> struct is_string
     {
         static constexpr bool value = std::is_same_v<T, const char *> || std::is_same_v<std::decay_t<T>, std::string> ||
@@ -654,7 +661,7 @@ void wrap_args(JSContext * ctx, JSValue * argv, Args&& ... args)
 
 // Helper trait to obtain `T` in `T::*` expressions
 template<typename T> struct class_from_member_pointer { using type = void; };
-template<typename T, typename U> struct class_from_member_pointer<T U::*> { using type = U; };
+template<typename T, typename U> struct class_from_member_pointer<T U::*> { using type = U; using member_type = T; };
 template<typename T> using class_from_member_pointer_t = typename class_from_member_pointer<T>::type;
 
 } // namespace detail
@@ -696,7 +703,7 @@ struct js_traits<fwrapper<F, PassThis>>
     {
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argc, argv);
+            return detail::wrap_this_call<R, qjs::shared_ptr<T>, Args...>(ctx, F, this_value, argc, argv);
         }, fw.name, sizeof...(Args));
 
     }
@@ -710,7 +717,7 @@ struct js_traits<fwrapper<F, PassThis>>
     {
         return JS_NewCFunction(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                        JSValueConst * argv) noexcept -> JSValue {
-            return detail::wrap_this_call<R, std::shared_ptr<T>, Args...>(ctx, F, this_value, argc, argv);
+            return detail::wrap_this_call<R, qjs::shared_ptr<T>, Args...>(ctx, F, this_value, argc, argv);
         }, fw.name, sizeof...(Args));
 
     }
@@ -746,284 +753,40 @@ struct js_traits<ctor_wrapper<T, Args...>>
     {
         return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
                                         JSValueConst * argv) noexcept -> JSValue {
-
-            if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
-            {
-#if defined(__cpp_rtti)
-                // automatically register class on first use (no prototype)
-                js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
-#else
-                JS_ThrowTypeError(ctx, "quickjspp ctor_wrapper<T>::wrap: Class is not registered");
-                return JS_EXCEPTION;
-#endif
-            }
-
+            assert(js_traits<qjs::shared_ptr<T>>::QJSClassId);
             auto proto = detail::GetPropertyPrototype(ctx, this_value);
             if(JS_IsException(proto))
                 return proto;
-            auto jsobj = JS_NewObjectProtoClass(ctx, proto, js_traits<std::shared_ptr<T>>::QJSClassId);
+            auto jsobj = JS_NewObjectProtoClass(ctx, proto, js_traits<qjs::shared_ptr<T>>::QJSClassId);
             JS_FreeValue(ctx, proto);
             if(JS_IsException(jsobj))
                 return jsobj;
-
             try
             {
-                std::shared_ptr<T> ptr = std::apply(std::make_shared<T, Args...>, detail::unwrap_args<Args...>(ctx, argc, argv));
-                JS_SetOpaque(jsobj, new std::shared_ptr<T>(std::move(ptr)));
-                return jsobj;
+                // TODO: fix/optimize
+                auto sp = std::apply(make_shared_with_object<T, Args...>, std::tuple_cat(
+                        std::tuple<JSContext *, JSValue&&>{ctx, std::move(jsobj)},
+                        detail::unwrap_args<Args...>(ctx, argc, argv)));
+                return sp.release();
             }
             catch (exception)
             {
-                JS_FreeValue(ctx, jsobj);
                 return JS_EXCEPTION;
             }
             catch (std::exception const & err)
             {
-                JS_FreeValue(ctx, jsobj);
                 JS_ThrowInternalError(ctx, "%s", err.what());
                 return JS_EXCEPTION;
             }
             catch (...)
             {
-                JS_FreeValue(ctx, jsobj);
                 JS_ThrowInternalError(ctx, "Unknown error");
                 return JS_EXCEPTION;
             }
-
-            // return detail::wrap_call<std::shared_ptr<T>, Args...>(ctx, std::make_shared<T, Args...>, argv);
         }, cw.name, sizeof...(Args), JS_CFUNC_constructor, 0);
     }
 };
 
-
-/** Conversions for std::shared_ptr<T>. Empty shared_ptr corresponds to JS_NULL.
- * T should be registered to a context before conversions.
- * @tparam T class type
- */
-template <class T>
-struct js_traits<std::shared_ptr<T>>
-{
-    /// Registered class id in QuickJS.
-    inline static JSClassID QJSClassId = 0;
-
-    /// Signature of the function to obtain the std::shared_ptr from the JSValue.
-    using ptr_cast_fcn_t = std::function<std::shared_ptr<T>(JSContext*, JSValueConst)>;
-
-    /// Used by registerDerivedClass to register new derived classes with this class' base type.
-    inline static std::function<void(JSClassID, ptr_cast_fcn_t)> registerWithBase;
-
-    /// Mapping between derived class' JSClassID and function to obtain the std::shared_ptr from the JSValue.
-    inline static std::unordered_map<JSClassID, ptr_cast_fcn_t> ptrCastFcnMap;
-
-    /** Register a class as a derived class.
-     * 
-     * @tparam D type of the derived class
-     * @param derived_class_id class id of the derived class
-     * @param ptr_cast_fcn function to obtain a std::shared_ptr from the JSValue
-     */
-    template<typename D>
-    static void registerDerivedClass(JSClassID derived_class_id, ptr_cast_fcn_t ptr_cast_fcn) {
-        static_assert(std::is_base_of<T,D>::value && !std::is_same<T,D>::value, "Type is not a derived class");
-        using derived_ptr_cast_fcn_t = typename js_traits<std::shared_ptr<D>>::ptr_cast_fcn_t;
-
-        // Register how to obtain the std::shared_ptr from the derived class.
-        ptrCastFcnMap[derived_class_id] = ptr_cast_fcn;
-
-        // Propagate the registration to our base class (if any).
-        if (registerWithBase) registerWithBase(derived_class_id, ptr_cast_fcn);
-
-        // Instrument the derived class so that it can propagate new derived classes to us.
-        auto old_registerWithBase = js_traits<std::shared_ptr<D>>::registerWithBase;
-        js_traits<std::shared_ptr<D>>::registerWithBase =
-            [old_registerWithBase = std::move(old_registerWithBase)]
-            (JSClassID derived_class_id, derived_ptr_cast_fcn_t derived_ptr_cast_fcn){
-                if (old_registerWithBase) old_registerWithBase(derived_class_id, derived_ptr_cast_fcn);
-                registerDerivedClass<D>(derived_class_id, [derived_cast_fcn = std::move(derived_ptr_cast_fcn)](JSContext * ctx, JSValueConst v) {
-                    return std::shared_ptr<T>(derived_cast_fcn(ctx, v));
-                });
-            };
-    }
-
-    template <typename B>
-    static
-    std::enable_if_t<std::is_same_v<B, T> || std::is_same_v<B, void>>
-    ensureCanCastToBase() { }
-
-    template <typename B>
-    static
-    std::enable_if_t<!std::is_same_v<B, T> && !std::is_same_v<B, void>>
-    ensureCanCastToBase() {
-        static_assert(std::is_base_of_v<B, T>, "Type is not a derived class");
-
-        if(js_traits<std::shared_ptr<T>>::QJSClassId == 0)
-            JS_NewClassID(&js_traits<std::shared_ptr<T>>::QJSClassId);
-
-        js_traits<std::shared_ptr<B>>::template registerDerivedClass<T>(QJSClassId, unwrap);
-    }
-
-    template <auto M>
-    static void ensureCanCastToBase() {
-        ensureCanCastToBase<detail::class_from_member_pointer_t<decltype(M)>>();
-    }
-
-    /** Stores offsets to qjs::Value members of T.
-     * These values should be marked by class_registrar::mark for QuickJS garbage collector
-     * so that the cycle removal algorithm can find the other objects referenced by this object.
-     */
-    static inline std::vector<Value T::*> markOffsets;
-
-    /** Register class in QuickJS context.
-     *
-     * @param ctx context
-     * @param name class name
-     * @param proto class prototype or JS_NULL
-     * @throws exception
-     */
-    static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL)
-    {
-        if(QJSClassId == 0)
-        {
-            JS_NewClassID(&QJSClassId);
-        }
-        auto rt = JS_GetRuntime(ctx);
-        if(!JS_IsRegisteredClass(rt, QJSClassId))
-        {
-            JSClassGCMark * marker = nullptr;
-            if(!markOffsets.empty())
-            {
-                marker = [](JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
-                    auto pptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque(val, QJSClassId));
-                    assert(pptr);
-                    const T * ptr = pptr->get();
-                    assert(ptr);
-                    for(Value T::* member : markOffsets)
-                    {
-                        JS_MarkValue(rt, (*ptr.*member).v, mark_func);
-                    }
-                };
-            }
-            JSClassDef def{
-                    name,
-                    // destructor (finalizer)
-                    [](JSRuntime * rt, JSValue obj) noexcept {
-                        auto pptr = static_cast<std::shared_ptr<T> *>(JS_GetOpaque(obj, QJSClassId));
-                        delete pptr;
-                    },
-                    // mark
-                    marker,
-                    // call
-                    nullptr,
-                    // exotic
-                    nullptr
-            };
-            int e = JS_NewClass(rt, QJSClassId, &def);
-            if(e < 0)
-            {
-                JS_ThrowInternalError(ctx, "Can't register class %s", name);
-                throw exception{ctx};
-            }
-        }
-        JS_SetClassProto(ctx, QJSClassId, proto);
-    }
-
-    /** Create a JSValue from std::shared_ptr<T>.
-     * Creates an object with class if #QJSClassId and sets its opaque pointer to a new copy of #ptr.
-     */
-    static JSValue wrap(JSContext * ctx, std::shared_ptr<T> ptr)
-    {
-        if(!ptr)
-            return JS_NULL;
-        if(QJSClassId == 0) // not registered
-        {
-#if defined(__cpp_rtti)
-            // automatically register class on first use (no prototype)
-            register_class(ctx, typeid(T).name());
-#else
-            JS_ThrowTypeError(ctx, "quickjspp std::shared_ptr<T>::wrap: Class is not registered");
-            return JS_EXCEPTION;
-#endif
-        }
-        auto jsobj = JS_NewObjectClass(ctx, QJSClassId);
-        if(JS_IsException(jsobj))
-            return jsobj;
-
-        auto pptr = new std::shared_ptr<T>(std::move(ptr));
-        JS_SetOpaque(jsobj, pptr);
-        return jsobj;
-    }
-
-    /// @throws exception if #v doesn't have the correct class id
-    static std::shared_ptr<T> unwrap(JSContext * ctx, JSValueConst v)
-    {
-        std::shared_ptr<T> ptr = nullptr;
-        if (JS_IsNull(v)) {
-            return ptr;
-        }
-        auto obj_class_id = JS_GetClassID(v);
-
-        if (obj_class_id == QJSClassId) {
-            // The JS object is of class T
-            void * opaque = JS_GetOpaque2(ctx, v, obj_class_id);
-            assert(opaque && "No opaque pointer in object");
-            ptr = *static_cast<std::shared_ptr<T> *>(opaque);
-        } else if (ptrCastFcnMap.count(obj_class_id)) {
-            // The JS object is of a class derived from T
-            ptr = ptrCastFcnMap[obj_class_id](ctx, v);
-        } else {
-            // The JS object does not derives from T
-            JS_ThrowTypeError(ctx, "Expected type %s, got object with classid %d",
-                              QJSPP_TYPENAME(T), obj_class_id);
-            throw exception{ctx};
-        }
-        if(!ptr) {
-            JS_ThrowInternalError(ctx, "Object's opaque pointer is NULL");
-            throw exception{ctx};
-        }
-        return ptr;
-    }
-};
-
-/** Conversions for non-owning pointers to class T. nullptr corresponds to JS_NULL.
- * @tparam T class type
- */
-template <class T>
-struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
-{
-    static JSValue wrap(JSContext * ctx, T * ptr)
-    {
-        if (ptr == nullptr) {
-            return JS_NULL;
-        }   
-        if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
-        {
-#if defined(__cpp_rtti)
-            // If you have an error here with T=JSValueConst
-            // it probably means you are passing JSValueConst to where JSValue is expected
-            js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
-#else
-            JS_ThrowTypeError(ctx, "quickjspp js_traits<T *>::wrap: Class is not registered");
-            return JS_EXCEPTION;
-#endif
-        }
-        auto jsobj = JS_NewObjectClass(ctx, js_traits<std::shared_ptr<T>>::QJSClassId);
-        if(JS_IsException(jsobj))
-            return jsobj;
-
-        // shared_ptr with empty deleter since we don't own T*
-        auto pptr = new std::shared_ptr<T>(ptr, [](T *) {});
-        JS_SetOpaque(jsobj, pptr);
-        return jsobj;
-    }
-
-    static T * unwrap(JSContext * ctx, JSValueConst v)
-    {
-        if (JS_IsNull(v)) {
-            return nullptr;
-        }
-        auto ptr = js_traits<std::shared_ptr<T>>::unwrap(ctx, v);
-        return ptr->get();
-    }
-};
 
 namespace detail {
 /** A faster std::function-like object with type erasure.
@@ -1112,9 +875,9 @@ struct js_traits<detail::function>
 template <typename Key>
 struct js_property_traits
 {
-    static void set_property(JSContext * ctx, JSValue this_obj, Key key, JSValue value);
+    static void set_property(JSContext * ctx, JSValue this_obj, Key key, JSValue value) = delete;
 
-    static JSValue get_property(JSContext * ctx, JSValue this_obj, Key key);
+    static JSValue get_property(JSContext * ctx, JSValue this_obj, Key key) = delete;
 };
 
 template <>
@@ -1205,12 +968,12 @@ struct get_set<M>
 {
     using is_const = std::is_const<R>;
 
-    static const R& get(std::shared_ptr<T> ptr)
+    static const R& get(qjs::shared_ptr<T> ptr)
     {
         return *ptr.*M;
     }
 
-    static R& set(std::shared_ptr<T> ptr, R value)
+    static R& set(qjs::shared_ptr<T> ptr, R value)
     {
         return *ptr.*M = std::move(value);
     }
@@ -1265,7 +1028,12 @@ public:
 
     bool operator ==(JSValueConst other) const
     {
-        return JS_VALUE_GET_TAG(v) == JS_VALUE_GET_TAG(other) && JS_VALUE_GET_PTR(v) == JS_VALUE_GET_PTR(other);
+        auto tag = JS_VALUE_GET_TAG(v);
+        if(tag != JS_VALUE_GET_TAG(other))
+            return false;
+        if(tag >= JS_TAG_INT && tag < JS_TAG_FLOAT64)
+            return JS_VALUE_GET_INT(v) == JS_VALUE_GET_INT(other);
+        return JS_VALUE_GET_PTR(v) == JS_VALUE_GET_PTR(other);
     }
 
     bool operator !=(JSValueConst other) const { return !((*this) == other); }
@@ -1402,7 +1170,324 @@ public:
         return Value{ctx, JS_EvalThis(ctx, v, buffer.data(), buffer.size(), filename, flags)};
     }
 
+    void swap(Value& r) noexcept { std::swap(this->ctx, r.ctx); std::swap(this->v, r.v); }
 };
+
+template <class T>
+class shared_ptr : public Value
+{
+    /** Usually it contains the same pointer as JS_GetOpaque.
+     * In case of T being a base class, it contains converted pointer.
+     */
+    T * pointer = nullptr;
+public:
+    constexpr shared_ptr() noexcept : Value(JS_NULL) {}
+    constexpr shared_ptr(std::nullptr_t) noexcept : shared_ptr() {}
+    constexpr shared_ptr(JSContext * ctx, JSValue&& val) noexcept : Value(ctx, std::move(val)), pointer(static_cast<T *>(JS_GetOpaque(v, JS_GetClassID(v)))) {}
+    template <class Y>
+    explicit shared_ptr(JSContext * ctx, Y * ptr) : shared_ptr()
+    {
+        assert(js_traits<shared_ptr>::QJSClassId);
+        assert(ctx);
+        auto jsobj = JS_NewObjectClass(ctx, js_traits<shared_ptr>::QJSClassId);
+        if(JS_IsException(jsobj))
+            throw exception{ctx};
+        this->pointer = static_cast<T *>(ptr);
+        JS_SetOpaque(jsobj, this->pointer);
+        this->v = jsobj;
+        this->ctx = ctx;
+    }
+    shared_ptr(shared_ptr&& r) noexcept : Value(std::move(r)), pointer(std::move(r.pointer)) {}
+
+    // convert pointer
+    template <typename Y>
+    shared_ptr(shared_ptr<Y>&& r) noexcept : Value(std::move(r))
+    {
+        if(r.get())
+            pointer = static_cast<T *>(r.get());
+    }
+
+    shared_ptr(const shared_ptr& r) noexcept : Value(r), pointer(r.pointer) {}
+
+    shared_ptr& operator=(shared_ptr r) { r.swap(*this); return *this; }
+
+    //using Value::operator=;
+
+    void reset() noexcept { shared_ptr().swap(*this); }
+    template<class Y> void reset(Y* ptr) { shared_ptr<T>(ctx, ptr).swap(*this); }
+    //void release() = delete;
+
+    [[nodiscard]] T* get() const noexcept { return pointer; }
+    T& operator*() const noexcept { return *get(); }
+    T* operator->() const noexcept { return get(); }
+
+    [[nodiscard]] long use_count() const noexcept
+    {
+        if(ctx == nullptr) return 0;
+        if(JS_VALUE_HAS_REF_COUNT(v))
+            return ((JSRefCountHeader *)JS_VALUE_GET_PTR(this->v))->ref_count;
+        return 1;
+    }
+
+    void swap(shared_ptr& r) noexcept { std::swap(this->ctx, r.ctx); std::swap(this->v, r.v); std::swap(this->pointer, r.pointer);}
+
+
+    explicit operator bool() const noexcept { return get() != nullptr; }
+};
+
+template<class T>
+class enable_shared_from_this
+{
+public://todo
+    shared_ptr<T> shared_this;
+public:
+    shared_ptr<T> shared_from_this()
+    {
+        if(!shared_this.ctx) throw std::bad_weak_ptr{};
+        return shared_this;
+    }
+};
+
+template <class T, class... Args>
+inline shared_ptr<T> make_shared(JSContext * ctx, Args&& ... args)
+{
+    // not optimized
+    T * p = nullptr;
+    try
+    {
+        p = ::new T(std::forward<Args>(args)...);
+        auto sp = shared_ptr<T>{ctx, p};
+        if constexpr(std::is_base_of_v<enable_shared_from_this<T>, T>)
+            return p->shared_this = sp;
+        return sp;
+    } catch(...)
+    {
+        delete p;
+        throw;
+    }
+}
+
+template <class T, class... Args>
+inline shared_ptr<T> make_shared_with_object(JSContext * ctx, JSValue&& jsobj, Args&& ... args)
+{
+    // not optimized
+    T * p = nullptr;
+    try
+    {
+        p = ::new T(std::forward<Args>(args)...);
+        JS_SetOpaque(jsobj, p);
+        auto sp = shared_ptr<T>{ctx, std::move(jsobj)};
+        if constexpr(std::is_base_of_v<enable_shared_from_this<T>, T>)
+            return p->shared_this = sp;
+        return sp;
+    } catch(...)
+    {
+        JS_SetOpaque(jsobj, nullptr);
+        JS_FreeValue(ctx, jsobj);
+        delete p;
+        throw;
+    }
+}
+
+
+/** Conversions for qjs::shared_ptr<T>. Empty shared_ptr corresponds to JS_NULL.
+ * T should be registered to a context before conversions.
+ * @tparam T class type
+ */
+template <class T>
+struct js_traits<qjs::shared_ptr<T>>
+{
+    /// Registered class id in QuickJS.
+    inline static JSClassID QJSClassId = 0;
+
+    /// Signature of the function to obtain the qjs::shared_ptr from the JSValue.
+    using ptr_cast_fcn_t = std::function<qjs::shared_ptr<T>(JSContext*, JSValueConst)>;
+
+    /// Used by registerDerivedClass to register new derived classes with this class' base type.
+    inline static std::function<void(JSClassID, ptr_cast_fcn_t)> registerWithBase;
+
+    /// Mapping between derived class' JSClassID and function to obtain the qjs::shared_ptr from the JSValue.
+    inline static std::unordered_map<JSClassID, ptr_cast_fcn_t> ptrCastFcnMap;
+
+    /** Register a class as a derived class.
+     *
+     * @tparam D type of the derived class
+     * @param derived_class_id class id of the derived class
+     * @param ptr_cast_fcn function to obtain a qjs::shared_ptr from the JSValue
+     */
+    template<typename D>
+    static void registerDerivedClass(JSClassID derived_class_id, ptr_cast_fcn_t ptr_cast_fcn) {
+        static_assert(std::is_base_of<T,D>::value && !std::is_same<T,D>::value, "Type is not a derived class");
+        using derived_ptr_cast_fcn_t = typename js_traits<qjs::shared_ptr<D>>::ptr_cast_fcn_t;
+
+        // Register how to obtain the qjs::shared_ptr from the derived class.
+        ptrCastFcnMap[derived_class_id] = ptr_cast_fcn;
+
+        // Propagate the registration to our base class (if any).
+        if (registerWithBase) registerWithBase(derived_class_id, ptr_cast_fcn);
+
+        // Instrument the derived class so that it can propagate new derived classes to us.
+        auto old_registerWithBase = std::move(js_traits<qjs::shared_ptr<D>>::registerWithBase);
+        js_traits<qjs::shared_ptr<D>>::registerWithBase =
+                [old_registerWithBase = std::move(old_registerWithBase)]
+                        (JSClassID derived_class_id, derived_ptr_cast_fcn_t derived_ptr_cast_fcn) {
+                    if (old_registerWithBase) old_registerWithBase(derived_class_id, derived_ptr_cast_fcn);
+                    registerDerivedClass<D>(derived_class_id, [derived_cast_fcn = std::move(derived_ptr_cast_fcn)]
+                    (JSContext * ctx, JSValueConst v)  {
+                        return qjs::shared_ptr<T>{derived_cast_fcn(ctx, v)};
+                    });
+                };
+    }
+
+    template <typename B>
+    static
+    std::enable_if_t<std::is_same_v<B, T> || std::is_same_v<B, void>>
+    ensureCanCastToBase() { }
+
+    template <typename B>
+    static
+    std::enable_if_t<!std::is_same_v<B, T> && !std::is_same_v<B, void>>
+    ensureCanCastToBase() {
+        static_assert(std::is_base_of_v<B, T>, "Type is not a derived class");
+
+        if(QJSClassId == 0)
+            JS_NewClassID(&QJSClassId);
+
+        js_traits<qjs::shared_ptr<B>>::template registerDerivedClass<T>(QJSClassId, unwrap);
+    }
+
+    template <auto M>
+    static void ensureCanCastToBase() {
+        ensureCanCastToBase<detail::class_from_member_pointer_t<decltype(M)>>();
+    }
+
+    /** Stores offsets to qjs::Value members of T.
+     * These values should be marked by class_registrar::mark for QuickJS garbage collector
+     * so that the cycle removal algorithm can find the other objects referenced by this object.
+     */
+    static inline std::vector<Value T::*> markOffsets;
+
+    /** Register class in QuickJS context.
+     *
+     * @param ctx context
+     * @param name class name
+     * @param proto class prototype or JS_NULL
+     * @throws exception
+     */
+    static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL)
+    {
+        if(QJSClassId == 0)
+        {
+            JS_NewClassID(&QJSClassId);
+        }
+        auto rt = JS_GetRuntime(ctx);
+        if(!JS_IsRegisteredClass(rt, QJSClassId))
+        {
+            JSClassGCMark * marker = nullptr;
+            if(!markOffsets.empty())
+            {
+                marker = [](JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
+                    auto ptr = static_cast<const T *>(JS_GetOpaque(val, QJSClassId));
+                    assert(ptr);
+                    for(auto&& member : markOffsets)
+                    {
+                        JS_MarkValue(rt, (*ptr.*member).v, mark_func);
+                    }
+                };
+            }
+            JSClassDef def{
+                    name,
+                    // destructor (finalizer)
+                    [](JSRuntime * rt, JSValue obj) noexcept {
+                        auto ptr = static_cast<T *>(JS_GetOpaque(obj, QJSClassId));
+                        if constexpr(std::is_base_of_v<qjs::enable_shared_from_this<T>, T>)
+                        {
+                            if(ptr) ptr->shared_this.release();
+                        }
+                        delete ptr;
+                    },
+                    // mark
+                    marker,
+                    // call
+                    nullptr,
+                    // exotic
+                    nullptr
+            };
+            int e = JS_NewClass(rt, QJSClassId, &def);
+            if(e < 0)
+            {
+                JS_FreeValue(ctx, proto);
+                JS_ThrowInternalError(ctx, "Can't register class %s", name);
+                throw exception{ctx};
+            }
+        }
+        JS_SetClassProto(ctx, QJSClassId, proto);
+    }
+
+    static shared_ptr<T> unwrap(JSContext * ctx, JSValueConst v)
+    {
+        if(JS_IsNull(v)) return shared_ptr<T>{};
+        auto obj_class_id = JS_GetClassID(v);
+        if(obj_class_id == QJSClassId)
+        {
+            // The JS object is of class T
+            return shared_ptr<T>{ctx, JS_DupValue(ctx, v)};
+        }
+        else if(ptrCastFcnMap.count(obj_class_id))
+        {
+            // The JS object is of a class derived from T
+            return ptrCastFcnMap[obj_class_id](ctx, v);
+        }
+        // The JS object does not derives from T
+        JS_ThrowTypeError(ctx, "Expected type %s, got object with classid %d",
+                          QJSPP_TYPENAME(T), obj_class_id);
+        throw exception{ctx};
+    }
+
+    static JSValue wrap(JSContext * ctx, shared_ptr<T> v) noexcept
+    {
+        if(!v) return JS_NULL;
+        assert(ctx == v.ctx);
+        return v.release();
+    }
+};
+
+template <class T>
+struct js_traits<T *>
+{
+    //static JSValue wrap(JSContext * ctx, T * ptr);
+    static T * unwrap(JSContext * ctx, JSValueConst v)
+    {
+        if(JS_IsNull(v))
+            return nullptr;
+        return js_traits<qjs::shared_ptr<T>>::unwrap(ctx, v).get();
+    }
+};
+
+template <class T>
+struct js_traits<T, std::enable_if_t<std::is_base_of_v<enable_shared_from_this<T>, T>>>
+{
+    static JSValue wrap(JSContext * ctx, T& obj) noexcept
+    {
+        try
+        {
+            return js_traits<qjs::shared_ptr<T>>::wrap(ctx, obj.shared_from_this());
+        } catch(const std::exception& e)
+        {
+            // probably wasn't made with qjs::make_shared
+            JS_ThrowInternalError(ctx, "%s", e.what());
+            return JS_EXCEPTION;
+        }
+    }
+
+    static T& unwrap(JSContext * ctx, JSValueConst v)
+    {
+        T * p = js_traits<qjs::shared_ptr<T>>::unwrap(ctx, v).get();
+        assert(p);
+        return *p;
+    }
+};
+
 
 /** Thin wrapper over JSRuntime * rt
  * Calls JS_FreeRuntime on destruction. noncopyable.
@@ -1575,6 +1660,11 @@ public:
                     module(module),
                     context(context)
             {
+                // mark enable_shared_from_this::shared_this if derived from it
+                if constexpr(std::is_base_of_v<enable_shared_from_this<T>,T>)
+                {
+                    mark<&T::shared_this>();
+                }
             }
 
             class_registrar(const class_registrar&) = delete;
@@ -1597,7 +1687,7 @@ public:
             template <auto F>
             class_registrar& fun(const char * name)
             {
-                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<F>();
+                js_traits<qjs::shared_ptr<T>>::template ensureCanCastToBase<F>();
                 prototype.add<F>(name);
                 return *this;
             }
@@ -1605,8 +1695,8 @@ public:
             template <auto FGet, auto FSet = nullptr>
             class_registrar& property(const char * name)
             {
-                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<FGet>();
-                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<FSet>();
+                js_traits<qjs::shared_ptr<T>>::template ensureCanCastToBase<FGet>();
+                js_traits<qjs::shared_ptr<T>>::template ensureCanCastToBase<FSet>();
                 if constexpr (std::is_same_v<decltype(FSet), std::nullptr_t>)
                     prototype.add_getter<FGet>(name);
                 else
@@ -1636,9 +1726,9 @@ public:
             class_registrar& base()
             {
                 static_assert(!std::is_same_v<B, T>, "Type cannot be a base of itself");
-                assert(js_traits<std::shared_ptr<B>>::QJSClassId && "base class is not registered");
-                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<B>();
-                auto base_proto = JS_GetClassProto(context.ctx, js_traits<std::shared_ptr<B>>::QJSClassId);
+                assert(js_traits<qjs::shared_ptr<B>>::QJSClassId && "base class is not registered");
+                js_traits<qjs::shared_ptr<T>>::template ensureCanCastToBase<B>();
+                auto base_proto = JS_GetClassProto(context.ctx, js_traits<qjs::shared_ptr<B>>::QJSClassId);
                 int err = JS_SetPrototype(context.ctx, prototype.v, base_proto);
                 JS_FreeValue(context.ctx, base_proto);
                 if(err < 0)
@@ -1649,17 +1739,23 @@ public:
             /** All qjs::Value members of T should be marked by mark<> for QuickJS garbage collector
              * so that the cycle removal algorithm can find the other objects referenced by this object.
              */
-            template <Value T::* V>
+            template <auto V>
             class_registrar& mark()
             {
-                js_traits<std::shared_ptr<T>>::markOffsets.push_back(V);
+                static_assert(std::is_base_of_v<Value, typename detail::class_from_member_pointer<decltype(V)>::member_type>,
+                        "marking a member pointer that is not derived from qjs::Value");
+                js_traits<qjs::shared_ptr<T>>::markOffsets.push_back(reinterpret_cast<Value T::*>(V));
                 return *this;
             }
 
-
-            ~class_registrar()
+            ~class_registrar() noexcept(false)
             {
-                context.registerClass<T>(name, std::move(prototype));
+                // register_class can throw, so check if an exception has already occurred
+                JSValue v = JS_GetException(context.ctx);
+                if(JS_IsNull(v))
+                    context.registerClass<T>(name, std::move(prototype));
+                else
+                    JS_Throw(context.ctx, v);
             }
         };
 
@@ -1748,7 +1844,7 @@ public:
     /** returns current exception associated with context and clears it. Should be called when qjs::exception is caught */
     Value getException() { return Value{ctx, JS_GetException(ctx)}; }
 
-    /** Register class T for conversions to/from std::shared_ptr<T> to work.
+    /** Register class T for conversions to/from qjs::shared_ptr<T> to work.
      * Wherever possible module.class_<T>("T")... should be used instead.
      * @tparam T class type
      * @param name class name in JS engine
@@ -1757,7 +1853,7 @@ public:
     template <class T>
     void registerClass(const char * name, JSValue proto = JS_NULL)
     {
-        js_traits<std::shared_ptr<T>>::register_class(ctx, name, proto);
+        js_traits<qjs::shared_ptr<T>>::register_class(ctx, name, proto);
     }
 
     /// @see JS_Eval

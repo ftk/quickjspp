@@ -5,6 +5,10 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
     steps:
       - uses: actions/checkout@v2
         with:
@@ -12,7 +16,7 @@ jobs:
       - name: install
         run: sudo apt-get update; sudo apt-get install -y valgrind
       - name: configure
-        run: echo 'include(Dart)' >> CMakeLists.txt && cmake -S . -B build_dir -Wdev -DCMAKE_BUILD_TYPE=Debug -DMEMORYCHECK_COMMAND_OPTIONS="--leak-check=full --track-origins=yes --error-exitcode=1"
+        run: echo 'include(Dart)' >> CMakeLists.txt && cmake -S . -B build_dir -Wdev -DCMAKE_BUILD_TYPE=${{matrix.build_type}} -DMEMORYCHECK_COMMAND_OPTIONS="--leak-check=full --track-origins=yes --error-exitcode=1"
       - name: build
         run: cmake --build build_dir --verbose
       - name: test
