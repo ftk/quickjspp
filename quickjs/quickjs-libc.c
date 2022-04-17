@@ -1,8 +1,8 @@
 /*
  * QuickJS C library
  * 
- * Copyright (c) 2017-2021 Fabrice Bellard
- * Copyright (c) 2017-2021 Charlie Gordon
+ * Copyright (c) 2017-2020 Fabrice Bellard
+ * Copyright (c) 2017-2020 Charlie Gordon
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,20 +28,30 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
-#include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/time.h>
 #include <time.h>
 #include <signal.h>
 #include <limits.h>
 #include <sys/stat.h>
-#include <dirent.h>
 #if defined(_WIN32)
-#include <windows.h>
-#include <conio.h>
-#include <utime.h>
+  #include <windows.h>
+  #include <conio.h>
+  #include <io.h>
+  #include <fcntl.h>
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  #include <sys/utime.h>
+  #include "win/dirent.h"
+  #ifndef PATH_MAX
+    #define PATH_MAX MAX_PATH
+  #endif
+  #define popen _popen
+  #define pclose _pclose
 #else
+  #include <dirent.h>
+  #include <unistd.h>
+  #include <sys/time.h>
 #include <dlfcn.h>
 #include <termios.h>
 #include <sys/ioctl.h>
@@ -54,6 +64,13 @@ typedef sig_t sighandler_t;
 #define environ (*_NSGetEnviron())
 #endif
 #endif /* __APPLE__ */
+
+#if defined(__FreeBSD__)
+typedef sig_t sighandler_t;
+__BEGIN_DECLS
+extern char **environ;
+__END_DECLS
+#endif  /* __FreeBSD__ */
 
 #endif
 
@@ -458,7 +475,7 @@ static JSModuleDef *js_module_loader_so(JSContext *ctx,
                                         const char *module_name)
 {
     JS_ThrowReferenceError(ctx, "shared library modules are not supported yet");
-    return NULL;
+              return NULL;
 }
 #else
 static JSModuleDef *js_module_loader_so(JSContext *ctx,
@@ -2552,6 +2569,16 @@ static JSValue js_os_stat(JSContext *ctx, JSValueConst this_val,
         JS_DefinePropertyValueStr(ctx, obj, "ctime",
                                   JS_NewInt64(ctx, timespec_to_ms(&st.st_ctimespec)),
                                   JS_PROP_C_W_E);
+#elif defined(ANDROID)
+        JS_DefinePropertyValueStr(ctx, obj, "atime",
+          JS_NewInt64(ctx, timespec_to_ms(&st.st_atime)),
+          JS_PROP_C_W_E);
+        JS_DefinePropertyValueStr(ctx, obj, "mtime",
+          JS_NewInt64(ctx, timespec_to_ms(&st.st_mtime)),
+          JS_PROP_C_W_E);
+        JS_DefinePropertyValueStr(ctx, obj, "ctime",
+          JS_NewInt64(ctx, timespec_to_ms(&st.st_ctime)),
+          JS_PROP_C_W_E);
 #else
         JS_DefinePropertyValueStr(ctx, obj, "atime",
                                   JS_NewInt64(ctx, timespec_to_ms(&st.st_atim)),
@@ -3091,6 +3118,22 @@ static JSValue js_os_kill(JSContext *ctx, JSValueConst this_val,
     ret = js_get_errno(kill(pid, sig));
     return JS_NewInt32(ctx, ret);
 }
+
+/* sleep(delay_ms) */
+/*static JSValue js_os_sleep(JSContext *ctx, JSValueConst this_val,
+                          int argc, JSValueConst *argv)
+{
+    int64_t delay;
+    struct timespec ts;
+    int ret;
+    
+    if (JS_ToInt64(ctx, &delay, argv[0]))
+        return JS_EXCEPTION;
+    ts.tv_sec = delay / 1000;
+    ts.tv_nsec = (delay % 1000) * 1000000;
+    ret = js_get_errno(nanosleep(&ts, NULL));
+    return JS_NewInt32(ctx, ret);
+}*/
 
 /* dup(fd) */
 static JSValue js_os_dup(JSContext *ctx, JSValueConst this_val,
