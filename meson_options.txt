@@ -2,4 +2,4 @@ option('debugger', type : 'boolean', value : false, description : 'Add debugger 
 option('jsx', type : 'boolean', value : false, description : 'Add JSX support')
 option('storage', type : 'boolean', value : false, description : 'Add persistent storage support')
 option('qjsc', type : 'boolean', value : false, description : 'Build QJSC application')
-option('qjs', type : 'boolean', value : false, description : 'Build QJS application (req. QJSC)')
+option('qjs', type : 'boolean', value : false, description : 'Build QJS application (read notes in meson.build)')

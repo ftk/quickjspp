@@ -68,7 +68,6 @@ if get_option('storage')==true
         'quickjs/storage/dybase/src/padepool.cpp',
         'quickjs/storage/dybase/include/dybase.h',
     ]
-
 endif
 
 quickjs = library('quickjs', quickjs_src)
@@ -80,22 +79,33 @@ if get_option('qjsc')==true
     qjsc_src = [
         'quickjs/qjsc.c',
     ]
-    qjsc = executable('qjsc', qjsc_src, link_with : quickjs)
+    qjsc = executable('qjsc', qjsc_src, link_with : quickjs, install : true, install_dir : meson.source_root() + '/build/bin')
+endif
 
-    ###
-    ### QJS
-    ###
-    if get_option('qjs')==true
-        qjs_src = [
-            'quickjs/qjs.c',
-            'quickjs/repl.js',
-            'quickjs/repl.c',
-            'quickjs/qjscalc.js',
-            'quickjs/qjscalc.c',
-        ]
-        qjsc = executable('qjs', qjs_src, link_with : quickjs, dependencies : qjsc)
-    endif
+###
+### QJS (please read notes)
+###
+if get_option('qjs')==true
 
-elif get_option('qjs')==true
-    error('You need to build qjsc in order to build qjs')
+    # TODO: This is not running as intended. What should happen is that qjsc from the
+    #       previous compile step is invoked to generate c files from the two specified
+    #       javascript files. These are then used in the build step of qjs
+    #
+    #       To build qjs, do the following:
+    #           1) Configure quickjs with qjsc=true, then build
+    #           2) Copy qjsc.exe to the /quickjs folder and run the following commands in a shell:
+    #                   qjsc -c -o repl.c -m repl.js
+    #                   qjsc -c -o qjscalc.c -m qjscalc.js
+    #           3) Configure quickjs with qjs=true (and qjsc=false), then build 
+    #
+    #qjsc_prog = find_program('qjsc', required : true)
+    #r = run_command(qjsc_prog, '-c', '-o', meson.source_root()+'/../quickjs/repl.c', '-m', meson.source_root()+'/../quickjs/repl.js', capture : true)
+    #r = run_command(qjsc_prog, '-c', '-o', meson.source_root()+'/../quickjs/qjscalc.c', '-m', meson.source_root()+'/../quickjs/qjscalc.js', capture : true)
+
+    qjs_src = [
+        'quickjs/qjs.c',
+        'quickjs/repl.c',
+        'quickjs/qjscalc.c',
+    ]
+    qjsc = executable('qjs', qjs_src, link_with : quickjs)
 endif
