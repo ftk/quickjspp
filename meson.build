@@ -15,6 +15,7 @@ add_project_arguments(
     ],
     language : ['c','cpp']
 )
+override_opts = []
 
 ### User option: JSX support
 if get_option('jsx')==true
@@ -24,7 +25,7 @@ endif
 ### User option: Storage support
 if get_option('storage')==true
     add_project_arguments('-DCONFIG_STORAGE', language : ['c','cpp'])
-    # TODO: cpp_eh=default needs to be set here, but not sure how (this will set /EHsc)
+    override_opts += 'cpp_eh=default'
 endif
 
 ### User option: Debugger support
@@ -70,7 +71,7 @@ if get_option('storage')==true
     ]
 endif
 
-quickjs = library('quickjs', quickjs_src)
+quickjs = library('quickjs', quickjs_src, override_options : override_opts)
 
 ###
 ### QJSC
