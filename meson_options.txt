@@ -1,5 +1,7 @@
 option('debugger', type : 'boolean', value : false, description : 'Add debugger support')
 option('jsx', type : 'boolean', value : false, description : 'Add JSX support')
 option('storage', type : 'boolean', value : false, description : 'Add persistent storage support')
+option('strictnan', type : 'boolean', value : false, description : 'Enable strict NaN boxing')
+option('bignum', type : 'boolean', value : true, description : 'Enable bignum (qjs)')
 option('qjsc', type : 'boolean', value : false, description : 'Build QJSC application')
 option('qjs', type : 'boolean', value : false, description : 'Build QJS application (read notes in meson.build)')

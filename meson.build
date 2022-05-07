@@ -33,6 +33,16 @@ if get_option('debugger')==true
     add_project_arguments('-DCONFIG_DEBUGGER', language : ['c','cpp'])
 endif
 
+### User option: Strict NaN boxing
+if get_option('strictnan')==true
+    add_project_arguments('-DJS_STRICT_NAN_BOXING', language : ['c','cpp'])
+endif
+
+### User option: Bignum support (qjs)
+if get_option('bignum')==true
+    add_project_arguments('-DCONFIG_BIGNUM', language : ['c','cpp'])
+endif
+
 # MSVC
 if meson.get_compiler('c').get_id() == 'cl'
     add_project_arguments('-D_CRT_SECURE_NO_WARNINGS', language : ['c','cpp'])
