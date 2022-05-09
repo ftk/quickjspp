@@ -5,7 +5,7 @@
 
 #define TYPES bool, int32_t, double, qjs::shared_ptr<test>, const qjs::shared_ptr<test>&, std::string, const std::string&
 
-class base_test
+class base_test : public qjs::enable_shared_from_this<base_test>
 {
 public:
     std::vector<std::vector<int>> base_field;
@@ -15,6 +15,10 @@ public:
         std::swap(x, base_field[0][0]);
         return x;
     }
+
+    // TODO: make it work in inherited classes
+    base_test * self() { return this; }
+    bool check_self(base_test * self) { return(this == self); }
 };
 
 class test : public base_test
@@ -79,6 +83,8 @@ void qjs_glue(qjs::Context::Module& m) {
             .fun<&::test::d>("d") // double
             .fun<&::test::spt>("spt") // ::std::shared_ptr<test>
             .fun<&::test::s>("s") // ::std::string
+            .fun<&::test::self>("self")
+            .fun<&::test::check_self>("check_self")
             .property<&test::get_d, &test::set_d>("property_rw")
             .property<&test::get_d>("property_ro")
             .mark<&::test::spt>()
@@ -148,6 +154,8 @@ int main()
                                 "assert(5 === q.base_method(7));"
                                 "assert(7 === q.base_field[0][0]);"
                                 "assert(q.spt === q.fspt(t.vb, t.vi, t.vd, t, t, t.vs, \"test\"));" // same objects
+                                "assert(q.check_self(q));"
+                                "assert(!t.check_self(q));"
                                 "q.fi(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");
         assert((int)xxx == 18);
         auto yyy = context.eval("q.fi.bind(t)(t.vb, t.vi, t.vd, t, t, t.vs, \"test\")");

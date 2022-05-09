@@ -1455,7 +1455,11 @@ struct js_traits<qjs::shared_ptr<T>>
 template <class T>
 struct js_traits<T *>
 {
-    //static JSValue wrap(JSContext * ctx, T * ptr);
+    static JSValue wrap(JSContext * ctx, T * ptr) noexcept
+    {
+        static_assert(std::is_base_of_v<enable_shared_from_this<T>, T>, "T should be inherited from qjs::enable_shared_from_this<T> to enable T* conversions");
+        return js_traits<T>::wrap(ctx, *ptr);
+    }
     static T * unwrap(JSContext * ctx, JSValueConst v)
     {
         if(JS_IsNull(v))
