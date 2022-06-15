@@ -716,6 +716,59 @@ struct js_traits<fwrapper<F, PassThis>>
     }
 };
 
+namespace detail {
+/// equivalent to JS_GetPropertyStr(ctx, this_value, "prototype");
+inline JSValue GetPropertyPrototype(JSContext * ctx, JSValueConst this_value)
+{
+    // constant atom: doesn't need to be freed and doesn't change with context
+    static const JSAtom JS_ATOM_prototype = JS_NewAtom(ctx, "prototype");
+    return JS_GetProperty(ctx, this_value, JS_ATOM_prototype);
+}
+} // namespace detail
+
+/** A wrapper type for default constructor of type T with no arguments Args.
+ */
+template <class T>
+struct default_ctor_wrapper
+{
+    /// "name" property of JS constructor object
+    const char * name = nullptr;
+};
+
+
+/** Conversion to JSValue for default_ctor_wrapper. */
+template <class T>
+struct js_traits<default_ctor_wrapper<T>>
+{
+    static JSValue wrap(JSContext * ctx, default_ctor_wrapper<T> cw) noexcept
+    {
+        return JS_NewCFunction2(ctx, [](JSContext * ctx, JSValueConst this_value, int argc,
+                                        JSValueConst * argv) noexcept -> JSValue {
+
+            if(js_traits<std::shared_ptr<T>>::QJSClassId == 0) // not registered
+            {
+#if defined(__cpp_rtti)
+                // automatically register class on first use (no prototype)
+                js_traits<std::shared_ptr<T>>::register_class(ctx, typeid(T).name());
+#else
+                JS_ThrowTypeError(ctx, "quickjspp ctor_wrapper<T>::wrap: Class is not registered");
+                return JS_EXCEPTION;
+#endif
+            }
+
+            auto proto = detail::GetPropertyPrototype(ctx, this_value);
+            if(JS_IsException(proto))
+                return proto;
+            auto jsobj = JS_NewObjectProtoClass(ctx, proto, js_traits<std::shared_ptr<T>>::QJSClassId);
+            JS_FreeValue(ctx, proto);
+            if(JS_IsException(jsobj))
+                return jsobj;
+            return jsobj;
+        }, cw.name, 0, JS_CFUNC_constructor, 0);
+    }
+};
+
+
 /** A wrapper type for constructor of type T with arguments Args.
  * Compilation fails if no such constructor is defined.
  * @tparam Args constructor arguments
@@ -728,15 +781,7 @@ struct ctor_wrapper
     const char * name = nullptr;
 };
 
-namespace detail {
-/// equivalent to JS_GetPropertyStr(ctx, this_value, "prototype");
-inline JSValue GetPropertyPrototype(JSContext * ctx, JSValueConst this_value)
-{
-    // constant atom: doesn't need to be freed and doesn't change with context
-    static const JSAtom JS_ATOM_prototype = JS_NewAtom(ctx, "prototype");
-    return JS_GetProperty(ctx, this_value, JS_ATOM_prototype);
-}
-} // namespace detail
+
 
 /** Conversion to JSValue for ctor_wrapper. */
 template <class T, typename... Args>
@@ -1021,7 +1066,7 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
             return nullptr;
         }
         auto ptr = js_traits<std::shared_ptr<T>>::unwrap(ctx, v);
-        return ptr->get();
+        return ptr.get();
     }
 };
 
@@ -1613,7 +1658,19 @@ public:
                     prototype.add_getter_setter<FGet, FSet>(name);
                 return *this;
             }
-
+            /** Add class custom default constructor
+             * @tparam Args contructor arguments
+             * @param name constructor name (if not specified class name will be used)
+             */
+            class_registrar& default_constructor(const char * name = nullptr)
+            {
+                if(!name)
+                    name = this->name;
+                Value ctor = context.newValue(qjs::default_ctor_wrapper<T>{name});
+                JS_SetConstructor(context.ctx, ctor.v, prototype.v);
+                module.add(name, std::move(ctor));
+                return *this;
+            }
             /** Add class constructor
              * @tparam Args contructor arguments
              * @param name constructor name (if not specified class name will be used)
