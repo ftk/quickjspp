@@ -49,8 +49,9 @@ public:
 
 
     static void fstatic(TYPES) {}
+    static bool bstatic;
 };
-
+bool test::bstatic;
 
 void f(TYPES) {}
 
@@ -74,6 +75,7 @@ void qjs_glue(qjs::Context::Module& m) {
             .fun<&::test::fs>("fs") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
             .fun<&::test::f>("f") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
             .fun<&::test::fstatic>("fstatic") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test>const &, ::std::string, ::std::string const &)
+            .fun<&::test::bstatic>("bstatic") // bool
             .fun<&::test::b>("b") // bool
             .fun<&::test::i>("i") // ::int32_t
             .fun<&::test::d>("d") // double
