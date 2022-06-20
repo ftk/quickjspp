@@ -1021,7 +1021,7 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
             return nullptr;
         }
         auto ptr = js_traits<std::shared_ptr<T>>::unwrap(ctx, v);
-        return ptr->get();
+        return ptr.get();
     }
 };
 
