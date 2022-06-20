@@ -2,31 +2,11 @@
 #include <stdio.h>
 #include "quickjspp.hpp"
 
-enum TestEnum {
+enum TestEnum : int64_t{
     TestEnum_A,
-    TestEnum_B,
+    TestEnum_B = (1ll << 51),
     TestEnum_C,
 };
-
-namespace qjs {
-
-#define ENUM_DEF(type)                                          \
-   template <>                                                   \
-   struct js_traits<type> {                                      \
-     static type unwrap(JSContext* ctx, JSValue v) noexcept {    \
-       uint32_t t;                                               \
-       JS_ToUint32(ctx, &t, v);                                  \
-       return type((uint16_t)t);                                 \
-     }                                                           \
-                                                                 \
-     static JSValue wrap(JSContext* ctx, type opcode) noexcept { \
-       return JS_NewUint32(ctx, opcode);                         \
-     }                                                           \
-   }
-
-    ENUM_DEF(TestEnum);
-
-}  // namespace qjs
 
 class TestClass {
 public:
@@ -62,6 +42,7 @@ int main() {
             let e = v1.getE();
             my.println("enum value "+e);
         )xxx");
+        assert(context.eval("e").as<TestEnum>() == TestEnum_C);
     } catch (qjs::exception) {
         auto exc = context.getException();
         std::cerr << (std::string) exc << std::endl;

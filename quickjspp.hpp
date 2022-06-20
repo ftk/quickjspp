@@ -1025,6 +1025,19 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
     }
 };
 
+/** Conversions for enums. */
+template <typename E>
+struct js_traits<E, std::enable_if_t<std::is_enum_v<E>>> {
+    using T = std::underlying_type_t<E>;
+    static E unwrap(JSContext* ctx, JSValue v) noexcept {
+        return static_cast<E>(js_traits<T>::unwrap(ctx, v));
+    }
+
+    static JSValue wrap(JSContext* ctx, E t) noexcept {
+        return js_traits<T>::wrap(ctx, static_cast<T>(t));;
+    }
+};
+
 namespace detail {
 /** A faster std::function-like object with type erasure.
  * Used to convert any callable objects (including lambdas) to JSValue.
