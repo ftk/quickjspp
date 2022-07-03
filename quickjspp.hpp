@@ -788,6 +788,19 @@ struct js_traits<ctor_wrapper<T, Args...>>
 };
 
 
+/** Conversions for enums. */
+template <typename E>
+struct js_traits<E, std::enable_if_t<std::is_enum_v<E>>> {
+    using T = std::underlying_type_t<E>;
+    static E unwrap(JSContext* ctx, JSValue v) noexcept {
+        return static_cast<E>(js_traits<T>::unwrap(ctx, v));
+    }
+
+    static JSValue wrap(JSContext* ctx, E t) noexcept {
+        return js_traits<T>::wrap(ctx, static_cast<T>(t));;
+    }
+};
+
 namespace detail {
 /** A faster std::function-like object with type erasure.
  * Used to convert any callable objects (including lambdas) to JSValue.
@@ -963,6 +976,7 @@ struct property_proxy
 template <auto M>
 struct get_set {};
 
+// M -  member object
 template <class T, typename R, R T::*M>
 struct get_set<M>
 {
@@ -976,6 +990,24 @@ struct get_set<M>
     static R& set(qjs::shared_ptr<T> ptr, R value)
     {
         return *ptr.*M = std::move(value);
+    }
+
+};
+
+// M - static member object
+template <typename R, R *M>
+struct get_set<M>
+{
+    using is_const = std::is_const<R>;
+
+    static const R& get(bool)
+    {
+        return *M;
+    }
+
+    static R& set(bool, R value)
+    {
+        return *M = std::move(value);
     }
 
 };
@@ -1096,7 +1128,7 @@ public:
     // add<&f>("f");
     // add<&T::f>("f");
     template <auto F>
-    std::enable_if_t<!std::is_member_object_pointer_v<decltype(F)>, Value&>
+    std::enable_if_t<std::is_member_function_pointer_v<decltype(F)> || std::is_function_v<std::remove_pointer_t<decltype(F)>>, Value&>
     add(const char * name)
     {
         (*this)[name] = fwrapper<F>{name};
@@ -1144,13 +1176,20 @@ public:
     add(const char * name)
     {
         if constexpr (detail::get_set<M>::is_const::value)
-        {
             return add_getter<detail::get_set<M>::get>(name);
-        }
         else
-        {
             return add_getter_setter<detail::get_set<M>::get, detail::get_set<M>::set>(name);
-        }
+    }
+
+    // add<&T::static_member>("static_member");
+    template <auto M>
+    std::enable_if_t<std::is_pointer_v<decltype(M)> && !std::is_function_v<std::remove_pointer_t<decltype(M)>> , Value&>
+    add(const char * name)
+    {
+        if constexpr (detail::get_set<M>::is_const::value)
+            return add_getter<detail::get_set<M>::get>(name);
+        else
+            return add_getter_setter<detail::get_set<M>::get, detail::get_set<M>::set>(name);
     }
 
     std::string
