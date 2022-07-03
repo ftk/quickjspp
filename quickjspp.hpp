@@ -47,6 +47,15 @@ public:
     Value get();
 };
 
+/** std::shared_ptr, for compatibility with quickjspp v2. */
+template <class T> using shared_ptr = std::shared_ptr<T>;
+/** std::make_shared, for compatibility with quickjspp v2. */
+template <class T, typename... Args>
+shared_ptr<T> make_shared(JSContext *, Args&&... args)
+{
+    return std::make_shared<T>(std::forward<Args>(args)...);
+}
+
 /** Javascript conversion traits.
  * Describes how to convert type R to/from JSValue. Second template argument can be used for SFINAE/enable_if type filters.
  */
