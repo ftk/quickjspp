@@ -1970,7 +1970,7 @@ struct js_traits<std::function<R(Args...)>, int>
         }
         else
         {
-            return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
+            return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args ... args) -> R {
                 const int argc = sizeof...(Args);
                 JSValue argv[argc];
                 detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
