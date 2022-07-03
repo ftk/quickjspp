@@ -11,7 +11,7 @@ public:
     double norm()
     {
         try {
-            auto js_norm = shared_from_this().evalThis("this.norm").as<std::function<double ()>>();
+            auto js_norm = shared_from_this().evalThis("this.norm.bind(this)").as<std::function<double ()>>();
             return js_norm();
         } catch(qjs::exception e) {}
         return std::sqrt((double) x * x + double(y) * y);
@@ -54,6 +54,7 @@ class ColorPoint extends Point {
         return this.color;
     }
     norm() {
+        assert(this.color);
         return 1.0;
     }
 };
