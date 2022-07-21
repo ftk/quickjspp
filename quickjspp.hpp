@@ -1423,8 +1423,14 @@ struct js_traits<qjs::shared_ptr<T>>
         if(!JS_IsRegisteredClass(rt, QJSClassId))
         {
             JSClassGCMark * marker = nullptr;
+            // automatically mark enable_shared_from_this::shared_this if derived from it
+            if constexpr(std::is_base_of_v<enable_shared_from_this<T>,T>)
+            {
+                markOffsets.push_back(reinterpret_cast<Value T::*>(&T::shared_this));
+            }
             if(!markOffsets.empty())
             {
+                markOffsets.shrink_to_fit();
                 marker = [](JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func) {
                     auto ptr = static_cast<const T *>(JS_GetOpaque(val, QJSClassId));
                     assert(ptr);
@@ -1703,11 +1709,6 @@ public:
                     module(module),
                     context(context)
             {
-                // mark enable_shared_from_this::shared_this if derived from it
-                if constexpr(std::is_base_of_v<enable_shared_from_this<T>,T>)
-                {
-                    mark<&T::shared_this>();
-                }
             }
 
             class_registrar(const class_registrar&) = delete;
