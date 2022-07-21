@@ -1411,9 +1411,12 @@ struct js_traits<qjs::shared_ptr<T>>
      * @param ctx context
      * @param name class name
      * @param proto class prototype or JS_NULL
+     * @param call QJS call function. see quickjs doc
+     * @param exotic pointer to QJS exotic methods(static lifetime) which allow custom property handling. see quickjs doc
      * @throws exception
      */
-    static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL)
+    static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL,
+                               JSClassCall * call = nullptr, JSClassExoticMethods * exotic = nullptr)
     {
         if(QJSClassId == 0)
         {
@@ -1454,9 +1457,9 @@ struct js_traits<qjs::shared_ptr<T>>
                     // mark
                     marker,
                     // call
-                    nullptr,
+                    call,
                     // exotic
-                    nullptr
+                    exotic
             };
             int e = JS_NewClass(rt, QJSClassId, &def);
             if(e < 0)
