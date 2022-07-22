@@ -55,7 +55,7 @@ public:
     static void fstatic(TYPES) {}
     static bool bstatic;
 };
-bool test::bstatic;
+bool test::bstatic = true;
 
 void f(TYPES) {}
 
@@ -71,6 +71,8 @@ void qjs_glue(qjs::Context::Module& m) {
     m.class_<::test>("test")
             .base<::base_test>()
             .constructor<::int32_t, bool, ::int32_t, double, ::qjs::shared_ptr<test>, ::qjs::shared_ptr<test> const &, ::std::string, ::std::string const &>("Test")
+            .static_fun<&::test::fstatic>("fstatic") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test>const &, ::std::string, ::std::string const &)
+            .static_fun<&::test::bstatic>("bstatic") // bool
             .constructor<::int32_t>("TestSimple")
             .fun<&::test::fi>("fi") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
             .fun<&::test::fb>("fb") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
@@ -78,8 +80,6 @@ void qjs_glue(qjs::Context::Module& m) {
             .fun<&::test::fspt>("fspt") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const&, ::std::string, ::std::string const &)
             .fun<&::test::fs>("fs") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
             .fun<&::test::f>("f") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test> const &, ::std::string, ::std::string const &)
-            .fun<&::test::fstatic>("fstatic") // (bool, ::int32_t, double, ::std::shared_ptr<test>, ::std::shared_ptr<test>const &, ::std::string, ::std::string const &)
-            .fun<&::test::bstatic>("bstatic") // bool
             .fun<&::test::b>("b") // bool
             .fun<&::test::i>("i") // ::int32_t
             .fun<&::test::d>("d") // double
@@ -176,6 +176,8 @@ int main()
 
         auto qbase = context.eval("q").as<qjs::shared_ptr<base_test>>();
         assert(qbase->base_field[0][0] == 7);
+
+        assert((bool)context.eval("test.Test.bstatic === true"));
     }
     catch(exception)
     {
