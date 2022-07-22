@@ -48,6 +48,11 @@ int main()
         // callback
         auto cb = (std::function<void(const std::string&)>) context.eval("my_callback");
         cb("world");
+
+        // passing c++ objects to JS
+        auto lambda = context.eval("x=>my.println(x.member_function('lambda'))").as<std::function<void(qjs::shared_ptr<MyClass>)>>();
+        auto v3 = qjs::make_shared<MyClass>(context.ctx, std::vector{1,2,3});
+        lambda(v3);
     }
     catch(qjs::exception)
     {

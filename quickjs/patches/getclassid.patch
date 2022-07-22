@@ -7,7 +7,7 @@ index 48aeffc62..8afc4caa1 100644
  #endif
  }
 +
-+JSClassID JS_GetClassID(JSValue v)
++JSClassID JS_GetClassID(JSValueConst v)
 +{
 +    JSObject *p;
 +

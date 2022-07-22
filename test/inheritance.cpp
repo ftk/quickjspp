@@ -82,40 +82,42 @@ int main()
     qjs::Runtime runtime;
     qjs::Context context(runtime);
 
-    auto& test = context.addModule("test");
-    test.class_<A>("A")
-        .constructor<int>()
-        .fun<&A::a>("a")
-        .fun<&A::vfunc_a1>("vfunc_a1")
-        .fun<&A::vfunc_a2>("vfunc_a2")
-        .fun<&A::non_vfunc_a1>("non_vfunc_a1")
-        .fun<&A::non_vfunc_a2>("non_vfunc_a2");
+    try
+    {
+        auto& test = context.addModule("test");
+        test.class_<A>("A")
+                .constructor<int>()
+                .fun<&A::a>("a")
+                .fun<&A::vfunc_a1>("vfunc_a1")
+                .fun<&A::vfunc_a2>("vfunc_a2")
+                .fun<&A::non_vfunc_a1>("non_vfunc_a1")
+                .fun<&A::non_vfunc_a2>("non_vfunc_a2");
 
-    test.class_<B>("B")
-        .constructor<int>()
-        .fun<&B::b>("b")
-        .fun<&B::vfunc_b1>("vfunc_b1")
-        .fun<&B::vfunc_b2>("vfunc_b2")
-        .fun<&B::non_vfunc_b1>("non_vfunc_b1")
-        .fun<&B::non_vfunc_b2>("non_vfunc_b2");
+        test.class_<B>("B")
+                .constructor<int>()
+                .fun<&B::b>("b")
+                .fun<&B::vfunc_b1>("vfunc_b1")
+                .fun<&B::vfunc_b2>("vfunc_b2")
+                .fun<&B::non_vfunc_b1>("non_vfunc_b1")
+                .fun<&B::non_vfunc_b2>("non_vfunc_b2");
 
-    test.class_<C>("C")
-        .constructor<int, int, int, int>()
-        .base<A>()
-        .fun<&C::c>("c")
-        .fun<&C::b>("b")
-        .fun<&C::h>("h")
-        .fun<&C::vfunc_b1>("vfunc_b1")
-        .fun<&C::vfunc_b2>("vfunc_b2")
-        .fun<&C::vfunc_h1>("vfunc_h1")
-        .fun<&C::vfunc_h2>("vfunc_h2")
-        .fun<&C::non_vfunc_a1>("non_vfunc_a1")
-        .fun<&C::non_vfunc_b1>("non_vfunc_b1")
-        .fun<&C::non_vfunc_b2>("non_vfunc_b2")
-        .fun<&C::non_vfunc_h1>("non_vfunc_h1")
-        .fun<&C::non_vfunc_h2>("non_vfunc_h2");
+        test.class_<C>("C")
+                .constructor<int, int, int, int>()
+                .base<A>()
+                .fun<&C::c>("c")
+                .fun<&C::b>("b")
+                .fun<&C::h>("h")
+                .fun<&C::vfunc_b1>("vfunc_b1")
+                .fun<&C::vfunc_b2>("vfunc_b2")
+                .fun<&C::vfunc_h1>("vfunc_h1")
+                .fun<&C::vfunc_h2>("vfunc_h2")
+                .fun<&C::non_vfunc_a1>("non_vfunc_a1")
+                .fun<&C::non_vfunc_b1>("non_vfunc_b1")
+                .fun<&C::non_vfunc_b2>("non_vfunc_b2")
+                .fun<&C::non_vfunc_h1>("non_vfunc_h1")
+                .fun<&C::non_vfunc_h2>("non_vfunc_h2");
 
-    try {
+
         context.eval(R"xxx(
             import { A, B, C } from "test";
 

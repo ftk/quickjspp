@@ -37,9 +37,13 @@ int main()
     qjs::Context context(runtime);
     try
     {
+        test_num<int8_t>(context);
+        test_num<uint8_t>(context);
         test_num<int16_t>(context);
+        test_num<uint16_t>(context);
         test_num<int32_t>(context);
         test_num<uint32_t>(context);
+        test_num<bool>(context);
 
         // int64 is represented as double...
         test_conv<int64_t>(context, -(1ll << 52));
