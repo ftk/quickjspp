@@ -673,14 +673,14 @@ struct js_property_traits<uint32_t>
 {
     static void set_property(JSContext * ctx, JSValue this_obj, uint32_t idx, JSValue value)
     {
-        int err = JS_SetPropertyUint32(ctx, this_obj, idx, value);
+		int err = JS_SetPropertyUint32(ctx, this_obj, idx, value);
         if(err < 0)
             throw exception{};
     }
 
     static JSValue get_property(JSContext * ctx, JSValue this_obj, uint32_t idx) noexcept
     {
-        return JS_GetPropertyUint32(ctx, this_obj, idx);
+		return JS_GetPropertyUint32(ctx, this_obj, idx);
     }
 };
 
@@ -1183,6 +1183,9 @@ public:
 
     /** returns new Object() */
     Value newObject() { return Value{ctx, JS_NewObject(ctx)}; }
+
+    /** returns new Array() */
+    Value newArray() { return Value{ctx, JS_NewArray(ctx)}; }
 
     /** returns JS value converted from c++ object val */
     template <typename T>
