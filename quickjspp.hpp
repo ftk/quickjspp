@@ -1619,12 +1619,14 @@ public:
             qjs::Value prototype;
             qjs::Context::Module& module;
             qjs::Context& context;
+            qjs::Value ctor; // last added constructor
         public:
             explicit class_registrar(const char * name, qjs::Context::Module& module, qjs::Context& context) :
                     name(name),
                     prototype(context.newObject()),
                     module(module),
-                    context(context)
+                    context(context),
+                    ctor(JS_NULL)
             {
             }
 
@@ -1653,6 +1655,24 @@ public:
                 return *this;
             }
 
+            /** Add a static member or function to the last added constructor.
+             * Example:
+             *  struct T { static int var; static int func(); }
+             *  module.class_<T>("T").contructor<>("T").static_fun<&T::var>("var").static_fun<&T::func>("func");
+             */
+            template <auto F>
+            class_registrar& static_fun(const char * name)
+            {
+                assert(!JS_IsNull(ctor.v) && "You should call .constructor before .static_fun");
+                js_traits<qjs::shared_ptr<T>>::template ensureCanCastToBase<F>();
+                ctor.add<F>(name);
+                return *this;
+            }
+
+            /** Add a property with custom getter and setter.
+             * Example:
+             * module.class_<T>("T").property<&T::getX, &T::setX>("x");
+             */
             template <auto FGet, auto FSet = nullptr>
             class_registrar& property(const char * name)
             {
@@ -1674,9 +1694,9 @@ public:
             {
                 if(!name)
                     name = this->name;
-                Value ctor = context.newValue(qjs::ctor_wrapper<T, Args...>{name});
+                ctor = context.newValue(qjs::ctor_wrapper<T, Args...>{name});
                 JS_SetConstructor(context.ctx, ctor.v, prototype.v);
-                module.add(name, std::move(ctor));
+                module.add(name, qjs::Value{ctor});
                 return *this;
             }
 
