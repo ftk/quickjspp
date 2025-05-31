@@ -1,6 +1,6 @@
 /*
  * C utilities
- * 
+ *
  * Copyright (c) 2017 Fabrice Bellard
  * Copyright (c) 2018 Charlie Gordon
  *
@@ -29,6 +29,28 @@
 
 #include "cutils.h"
 
+#ifdef _MSC_VER
+
+ // From: https://stackoverflow.com/a/26085827
+int gettimeofday(struct timeval * tp, struct timezone * tzp)
+{
+    static const uint64_t EPOCH = ((uint64_t)116444736000000000ULL);
+
+    SYSTEMTIME  system_time;
+    FILETIME    file_time;
+    uint64_t    time;
+
+    GetSystemTime(&system_time);
+    SystemTimeToFileTime(&system_time, &file_time);
+    time = ((uint64_t)file_time.dwLowDateTime);
+    time += ((uint64_t)file_time.dwHighDateTime) << 32;
+
+    tp->tv_sec = (long)((time - EPOCH) / 10000000L);
+    tp->tv_usec = (long)(system_time.wMilliseconds * 1000);
+
+    return 0;
+}
+#endif
 void pstrcpy(char *buf, int buf_size, const char *str)
 {
     int c;
@@ -140,7 +162,7 @@ int dbuf_put(DynBuf *s, const uint8_t *data, size_t len)
         if (dbuf_realloc(s, s->size + len))
             return -1;
     }
-    memcpy(s->buf + s->size, data, len);
+    memcpy_no_ub(s->buf + s->size, data, len);
     s->size += len;
     return 0;
 }
@@ -172,10 +194,12 @@ int __attribute__((format(printf, 2, 3))) dbuf_printf(DynBuf *s,
     va_list ap;
     char buf[128];
     int len;
-    
+
     va_start(ap, fmt);
     len = vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    if (len < 0)
+        return -1;
     if (len < sizeof(buf)) {
         /* fast case */
         return dbuf_put(s, (uint8_t *)buf, len);

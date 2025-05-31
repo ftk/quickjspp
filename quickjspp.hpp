@@ -406,10 +406,10 @@ struct js_traits<std::variant<Ts...>>
             case JS_TAG_BOOL:
                 return is_boolean<T>::value || std::is_integral_v<T> || std::is_floating_point_v<T>;
 
-            case JS_TAG_BIG_DECIMAL:
-                [[fallthrough]];
-            case JS_TAG_BIG_FLOAT:
-                [[fallthrough]];
+            //case JS_TAG_BIG_DECIMAL:
+            //    [[fallthrough]];
+            //case JS_TAG_BIG_FLOAT:
+            //    [[fallthrough]];
             case JS_TAG_FLOAT64:
             default: // >JS_TAG_FLOAT64 (JS_NAN_BOXING)
                 return is_double<T>::value || std::is_floating_point_v<T>;
@@ -474,10 +474,10 @@ struct js_traits<std::variant<Ts...>>
             case JS_TAG_EXCEPTION:
                 break;
 
-            case JS_TAG_BIG_DECIMAL:
-                [[fallthrough]];
-            case JS_TAG_BIG_FLOAT:
-                [[fallthrough]];
+            //case JS_TAG_BIG_DECIMAL:
+            //    [[fallthrough]];
+            //case JS_TAG_BIG_FLOAT:
+            //    [[fallthrough]];
 
             case JS_TAG_FLOAT64:
                 [[fallthrough]];
@@ -908,7 +908,7 @@ struct js_traits<std::shared_ptr<T>>
                     assert(pptr);
                     const T * ptr = pptr->get();
                     assert(ptr);
-                    for(Value T::* member : markOffsets)
+                    for(Value (T::*member) : markOffsets)
                     {
                         JS_MarkValue(rt, (*ptr.*member).v, mark_func);
                     }
