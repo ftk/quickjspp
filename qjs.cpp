@@ -36,7 +36,7 @@ int main(int argc, char ** argv)
     js_std_init_handlers(rt);
 
     /* loader for ES6 modules */
-    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
+    JS_SetModuleLoaderFunc2(rt, NULL, js_module_loader, js_module_check_attributes, NULL);
 
     qjs::Context context(JS_NewCustomContext(rt));
     auto ctx = context.ctx;

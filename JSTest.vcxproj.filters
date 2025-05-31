@@ -45,9 +45,6 @@
     <ClCompile Include="quickjs\cutils.c">
       <Filter>quickjs</Filter>
     </ClCompile>
-    <ClCompile Include="quickjs\libbf.c">
-      <Filter>quickjs</Filter>
-    </ClCompile>
     <ClCompile Include="quickjs\libregexp.c">
       <Filter>quickjs</Filter>
     </ClCompile>
@@ -60,15 +57,15 @@
     <ClCompile Include="quickjs\quickjs-libc.c">
       <Filter>quickjs</Filter>
     </ClCompile>
+    <ClCompile Include="quickjs\dtoa.c">
+      <Filter>quickjs</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="quickjspp.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="quickjs\cutils.h">
-      <Filter>quickjs</Filter>
-    </ClInclude>
-    <ClInclude Include="quickjs\libbf.h">
       <Filter>quickjs</Filter>
     </ClInclude>
     <ClInclude Include="quickjs\libregexp.h">
@@ -96,6 +93,9 @@
       <Filter>quickjs</Filter>
     </ClInclude>
     <ClInclude Include="quickjs\quickjs-opcode.h">
+      <Filter>quickjs</Filter>
+    </ClInclude>
+    <ClInclude Include="quickjs\dtoa.h">
       <Filter>quickjs</Filter>
     </ClInclude>
   </ItemGroup>
