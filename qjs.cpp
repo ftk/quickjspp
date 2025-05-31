@@ -13,12 +13,14 @@ static JSContext *JS_NewCustomContext(JSRuntime *rt)
     ctx = JS_NewContext(rt);
     if (!ctx)
         return NULL;
+#ifdef CONFIG_BIGNUM
     if (bignum_ext) {
         JS_AddIntrinsicBigFloat(ctx);
         JS_AddIntrinsicBigDecimal(ctx);
         JS_AddIntrinsicOperators(ctx);
         JS_EnableBignumExt(ctx, true);
     }
+#endif
     /* system modules */
     js_init_module_std(ctx, "std");
     js_init_module_os(ctx, "os");

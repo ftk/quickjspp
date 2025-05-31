@@ -22,26 +22,38 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#define _CRT_SECURE_NO_WARNINGS
+#define _CRT_NONSTDC_NO_DEPRECATE 
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
-#include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/time.h>
 #include <time.h>
 #include <signal.h>
 #include <limits.h>
 #include <sys/stat.h>
-#include <dirent.h>
 #if defined(_WIN32)
 #include <windows.h>
 #include <conio.h>
-#include <utime.h>
+#include <io.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/utime.h>
+#include "win/dirent.h"
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+#define popen _popen
+#define pclose _pclose
 #else
+#include <dirent.h>
+#include <unistd.h>
+#include <sys/time.h>
 #include <dlfcn.h>
 #include <termios.h>
 #include <sys/ioctl.h>
@@ -54,13 +66,6 @@ typedef sig_t sighandler_t;
 #define environ (*_NSGetEnviron())
 #endif
 #endif /* __APPLE__ */
-
-#if defined(__FreeBSD__)
-typedef sig_t sighandler_t;
-__BEGIN_DECLS
-extern char **environ;
-__END_DECLS
-#endif  /* __FreeBSD__ */
 
 #endif
 
