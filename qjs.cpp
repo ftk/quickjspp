@@ -4,8 +4,6 @@
 #include <iostream>
 #include <string_view>
 
-static bool bignum_ext = false;
-
 /* also used to initialize the worker context */
 static JSContext *JS_NewCustomContext(JSRuntime *rt)
 {
@@ -13,12 +11,7 @@ static JSContext *JS_NewCustomContext(JSRuntime *rt)
     ctx = JS_NewContext(rt);
     if (!ctx)
         return NULL;
-    if (bignum_ext) {
-        JS_AddIntrinsicBigFloat(ctx);
-        JS_AddIntrinsicBigDecimal(ctx);
-        JS_AddIntrinsicOperators(ctx);
-        JS_EnableBignumExt(ctx, true);
-    }
+
     /* system modules */
     js_init_module_std(ctx, "std");
     js_init_module_os(ctx, "os");
@@ -34,7 +27,7 @@ int main(int argc, char ** argv)
     js_std_init_handlers(rt);
 
     /* loader for ES6 modules */
-    JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
+    JS_SetModuleLoaderFunc2(rt, NULL, js_module_loader, NULL, NULL);
 
     qjs::Context context(JS_NewCustomContext(rt));
     auto ctx = context.ctx;
@@ -51,12 +44,6 @@ int main(int argc, char ** argv)
     else if(argv[optind] && argv[optind] == std::string_view{"--script"})
     {
         flags = JS_EVAL_TYPE_GLOBAL;
-        optind++;
-    }
-    // enable bignum
-    if(argv[optind] && argv[optind] == std::string_view{"--bignum"})
-    {
-        bignum_ext = true;
         optind++;
     }
 
@@ -87,7 +74,7 @@ int main(int argc, char ** argv)
         }
         else
         {
-            std::cout << argv[0] << " [--module|--script] [--bignum] <filename>" << std::endl;
+            std::cout << argv[0] << " [--module|--script] <filename>" << std::endl;
             js_std_free_handlers(rt);
             return 1;
         }

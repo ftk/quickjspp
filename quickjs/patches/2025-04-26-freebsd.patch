@@ -1,0 +1,14 @@
+diff --git a/quickjs/quickjs-libc.c b/quickjs/quickjs-libc.c
+index 023d895..2387a45 100644
+--- a/quickjs/quickjs-libc.c
++++ b/quickjs/quickjs-libc.c
+@@ -48,7 +48,9 @@
+ #include <sys/wait.h>
+ 
+ #if defined(__FreeBSD__)
++__BEGIN_DECLS
+ extern char **environ;
++__END_DECLS
+ #endif
+ 
+ #if defined(__APPLE__) || defined(__FreeBSD__)
