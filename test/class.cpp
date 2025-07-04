@@ -104,7 +104,7 @@ int main()
 
         js_std_init_handlers(rt);
         /* loader for ES6 modules */
-        JS_SetModuleLoaderFunc(rt, nullptr, js_module_loader, nullptr);
+        JS_SetModuleLoaderFunc2(rt, nullptr, js_module_loader, nullptr, nullptr);
         js_std_add_helpers(ctx, 0, nullptr);
 
         /* system modules */
